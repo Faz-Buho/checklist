@@ -1,0 +1,14 @@
+# Base de datos local (SQLite) — nunca subir el histórico al repo
+checklist_data.db
+checklist_data.db-wal
+checklist_data.db-shm
+
+# Secrets locales de Streamlit (connection string de Supabase)
+.streamlit/secrets.toml
+
+__pycache__/
+*.pyc
+.DS_Store
+
+# Configuración local de Claude Code
+.claude/settings.local.json
