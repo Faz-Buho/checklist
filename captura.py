@@ -5,6 +5,11 @@ entregar al diseñador. Se ejecuta vía st.navigation desde app.py.
 """
 
 from datetime import datetime
+from zoneinfo import ZoneInfo
+
+# El servidor de Streamlit Cloud corre en UTC; las fechas de las
+# revisiones se registran en hora de México.
+TZ_LOCAL = ZoneInfo("America/Mexico_City")
 
 import pandas as pd
 import streamlit as st
@@ -204,11 +209,16 @@ def generar_pdf(proyecto_info, respuestas, resultado, revision_num):
 # ---------------------------------------------------------------------
 
 def _email_usuario():
-    """Email del usuario logueado (Streamlit Cloud con viewers por email).
-    En local, sin login configurado, regresa None y se usa el selector."""
+    """Email del usuario logueado. En Community Cloud (app privada) el
+    email del viewer llega en st.user aunque is_logged_in sea False, por
+    eso se lee directo. En local, sin login, regresa None y se usa el
+    selector de nombres."""
     try:
-        if st.user.is_logged_in:
-            return st.user.email or None
+        email = getattr(st.user, "email", None)
+        # "test@example.com" es el placeholder que Streamlit inyecta en
+        # desarrollo/pruebas locales; no es un usuario real.
+        if email and email != "test@example.com":
+            return email
     except Exception:
         pass
     return None
@@ -380,7 +390,7 @@ if guardar:
             campana_nombre = campana_sel
 
         resultado = compute_resultado(respuestas)
-        fecha = datetime.now().strftime("%Y-%m-%d %H:%M")
+        fecha = datetime.now(TZ_LOCAL).strftime("%Y-%m-%d %H:%M")
 
         revision_num = db.save_revision(
             folio, cliente, campana_id, evaluador, respuestas, resultado, fecha
