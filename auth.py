@@ -27,17 +27,18 @@ ROL_DISENADOR = "disenador"
 # Correos con rol de evaluador (2do check). Cualquier otro correo de un
 # dominio permitido entra como diseñador.
 EVALUADORES = {
-    "pablo.faz.meza@gmail.com": "Pablo Faz",
-    # TODO: agregar los correos de empresa cuando estén definidos:
-    # "pablo@buhoms.com": "Pablo Faz",
-    # "mariana@buhoms.com": "Mariana Hernandez",
+    "pfaz@buhoms.com": "Pablo Faz",
+    "mhernandez@buhoms.com": "Mariana Hernandez",
+    "pablo.faz.meza@gmail.com": "Pablo Faz",  # correo personal de Pablo
 }
 
 # Correos de diseñadores con nombre para mostrar (opcional: un correo de
 # dominio permitido que no esté aquí entra igual, mostrando su correo).
+# TODO: reemplazar los placeholders por los nombres reales.
 DISENADORES = {
-    # "correo1@buhoms.com": "Diseñador 1",
-    # "correo2@buhoms.com": "Diseñador 2",
+    "mfernandez@buhoms.com": "Diseñador 1",
+    "fhernandez@buhoms.com": "Diseñador 2",
+    "dsifuentes@buhoms.com": "Diseñador 3",
 }
 
 # Nombres para el modo sin login (selector). Reemplazar los placeholders
