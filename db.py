@@ -96,6 +96,7 @@ def init_db():
             id {pk},
             folio_id BIGINT NOT NULL REFERENCES folios(id) ON DELETE CASCADE,
             revision INTEGER NOT NULL,
+            tipo TEXT NOT NULL DEFAULT 'segundo',
             evaluador TEXT,
             fecha TEXT NOT NULL,
             resultado TEXT NOT NULL,
@@ -118,10 +119,18 @@ def init_db():
             with conn.cursor() as cur:
                 for stmt in ddl:
                     cur.execute(stmt)
+                # Bases creadas antes del 1er check del diseñador
+                cur.execute("ALTER TABLE revisiones ADD COLUMN IF NOT EXISTS "
+                            "tipo TEXT NOT NULL DEFAULT 'segundo'")
             conn.commit()
         else:
             for stmt in ddl:
                 conn.execute(stmt)
+            try:
+                conn.execute("ALTER TABLE revisiones ADD COLUMN "
+                             "tipo TEXT NOT NULL DEFAULT 'segundo'")
+            except sqlite3.OperationalError:
+                pass  # la columna ya existe
     finally:
         conn.close()
 
@@ -204,7 +213,7 @@ def get_revisiones(folio):
     conn = _connect()
     try:
         rev_rows = _fetchall(conn, """
-            SELECT r.id, r.revision, r.evaluador, r.fecha, r.resultado
+            SELECT r.id, r.revision, r.tipo, r.evaluador, r.fecha, r.resultado
             FROM revisiones r JOIN folios f ON f.id = r.folio_id
             WHERE f.folio = ? ORDER BY r.revision ASC
         """, (folio,))
@@ -215,6 +224,7 @@ def get_revisiones(folio):
                              (row["id"],))
             revisiones.append({
                 "revision": row["revision"],
+                "tipo": row["tipo"],
                 "fecha": row["fecha"],
                 "evaluador": row["evaluador"] or "",
                 "resultado": row["resultado"],
@@ -228,7 +238,8 @@ def get_revisiones(folio):
         conn.close()
 
 
-def save_revision(folio, cliente, campana_id, evaluador, respuestas, resultado, fecha):
+def save_revision(folio, cliente, campana_id, evaluador, respuestas, resultado, fecha,
+                  tipo="segundo"):
     """
     Da de alta o actualiza el folio (cliente/campaña) e inserta la nueva
     revisión, todo en una transacción. El número de revisión se calcula
@@ -253,9 +264,9 @@ def save_revision(folio, cliente, campana_id, evaluador, respuestas, resultado, 
                 ), (folio_id,))
                 revision_num = cur.fetchone()["max_rev"] + 1
                 cur.execute(_sql("""
-                    INSERT INTO revisiones (folio_id, revision, evaluador, fecha, resultado)
-                    VALUES (?, ?, ?, ?, ?) RETURNING id
-                """), (folio_id, revision_num, evaluador, fecha, resultado))
+                    INSERT INTO revisiones (folio_id, revision, tipo, evaluador, fecha, resultado)
+                    VALUES (?, ?, ?, ?, ?, ?) RETURNING id
+                """), (folio_id, revision_num, tipo, evaluador, fecha, resultado))
                 revision_id = cur.fetchone()["id"]
                 cur.executemany(_sql(
                     "INSERT INTO respuestas (revision_id, item_id, status, motivo) VALUES (?, ?, ?, ?)"
@@ -280,8 +291,8 @@ def save_revision(folio, cliente, campana_id, evaluador, respuestas, resultado, 
                 (folio_id,)).fetchone()
             revision_num = row["max_rev"] + 1
             cur = conn.execute(
-                "INSERT INTO revisiones (folio_id, revision, evaluador, fecha, resultado) VALUES (?, ?, ?, ?, ?)",
-                (folio_id, revision_num, evaluador, fecha, resultado))
+                "INSERT INTO revisiones (folio_id, revision, tipo, evaluador, fecha, resultado) VALUES (?, ?, ?, ?, ?, ?)",
+                (folio_id, revision_num, tipo, evaluador, fecha, resultado))
             revision_id = cur.lastrowid
             conn.executemany(
                 "INSERT INTO respuestas (revision_id, item_id, status, motivo) VALUES (?, ?, ?, ?)",
@@ -310,19 +321,38 @@ def _filtro_campana(filtro):
 
 
 def get_revisiones_dashboard(filtro="todas"):
-    """Una fila por revisión: folio, cliente, campana, revision, resultado, fecha, evaluador."""
+    """Una fila por revisión: folio, cliente, campana, revision, tipo, resultado, fecha, evaluador."""
     where, params = _filtro_campana(filtro)
     conn = _connect()
     try:
         return _fetchall(conn, f"""
             SELECT f.folio, f.cliente, c.nombre AS campana,
-                   r.revision, r.resultado, r.fecha, r.evaluador
+                   r.revision, r.tipo, r.resultado, r.fecha, r.evaluador
             FROM revisiones r
             JOIN folios f ON f.id = r.folio_id
             LEFT JOIN campanas c ON c.id = f.campana_id
             WHERE 1=1{where}
             ORDER BY f.folio, r.revision
         """, params)
+    finally:
+        conn.close()
+
+
+def get_pendientes():
+    """Folios cuya última revisión es un 1er check del diseñador: la cola
+    de pendientes de 2do check, del más antiguo al más reciente."""
+    conn = _connect()
+    try:
+        return _fetchall(conn, """
+            SELECT f.folio, f.cliente, c.nombre AS campana,
+                   r.evaluador AS disenador, r.fecha
+            FROM revisiones r
+            JOIN folios f ON f.id = r.folio_id
+            LEFT JOIN campanas c ON c.id = f.campana_id
+            WHERE r.tipo = 'primer'
+              AND r.id = (SELECT MAX(r2.id) FROM revisiones r2 WHERE r2.folio_id = r.folio_id)
+            ORDER BY r.fecha ASC
+        """)
     finally:
         conn.close()
 

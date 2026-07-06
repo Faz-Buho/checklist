@@ -1,15 +1,16 @@
 """
-Página de captura: el checklist de revisión por folio (= número de OT),
-con cliente y campaña como atributos del folio, y reporte en PDF para
-entregar al diseñador. Se ejecuta vía st.navigation desde app.py.
+Página de captura, con dos flujos según el rol del usuario (ver auth.py):
+
+- Diseñador (1er check): pasa los mismos 18 puntos sobre su propio
+  layout. Solo puede guardarlo si TODO está en Cumple/N/A — guardarlo es
+  lo que somete el folio a 2do check (aparece en la cola de pendientes).
+- Evaluador (2do check): la revisión independiente de calidad, con cola
+  de pendientes, resultado, PDF para el diseñador y ciclo de correcciones.
+
+Se ejecuta vía st.navigation desde app.py.
 """
 
 from datetime import datetime
-from zoneinfo import ZoneInfo
-
-# El servidor de Streamlit Cloud corre en UTC; las fechas de las
-# revisiones se registran en hora de México.
-TZ_LOCAL = ZoneInfo("America/Mexico_City")
 
 import pandas as pd
 import streamlit as st
@@ -17,10 +18,15 @@ from fpdf import FPDF
 from fpdf.fonts import FontFace
 
 import db
+from auth import ROL_DISENADOR, ROL_EVALUADOR
 from catalogo import (
     BLOQUES,
     CHECKLIST_ITEMS,
+    ESTADO_CORRECCION,
+    ESTADO_LISTO,
+    ESTADO_PENDIENTE,
     RESULTADO_CORRECCION,
+    RESULTADO_ENVIADO,
     RESULTADO_LISTO,
     STATUS_ICONS,
     STATUS_OPTIONS,
@@ -29,23 +35,24 @@ from catalogo import (
     STATUS_CUMPLE,
     STATUS_NA,
     STATUS_NO_CUMPLE,
+    TIPO_PRIMER,
+    TIPO_SEGUNDO,
+    TZ_LOCAL,
+    estado_folio,
 )
 
 # ---------------------------------------------------------------------
 # Configuración
 # ---------------------------------------------------------------------
 
-# Lista de evaluadores para uso local (sin login). En Streamlit Cloud,
-# con viewers restringidos por email, el evaluador se toma solo del
-# usuario logueado y este selector no aparece.
-EVALUADORES = [
-    "Pablo Faz",
-    "Mariana Hernandez",
-]
-OTRO_EVALUADOR = "Otro (especificar)"
-
 SIN_CAMPANA = "(Sin campaña)"
 NUEVA_CAMPANA = "➕ Nueva campaña..."
+
+ESTADO_ICONS = {
+    ESTADO_PENDIENTE: "🕓",
+    ESTADO_CORRECCION: "🔴",
+    ESTADO_LISTO: "✅",
+}
 
 # Colores (texto, fondo) por estatus para el reporte en PDF
 STATUS_PDF_COLORS = {
@@ -69,7 +76,7 @@ def compute_resultado(respuestas):
 
 
 # ---------------------------------------------------------------------
-# Reporte en PDF
+# Reporte en PDF (solo para el 2do check)
 # ---------------------------------------------------------------------
 
 def _pdf_text(s):
@@ -198,7 +205,8 @@ def generar_pdf(proyecto_info, respuestas, resultado, revision_num):
         pdf.set_text_color(153, 27, 27)
         pdf.multi_cell(0, 5, _pdf_text(
             "Los puntos marcados 'Con ajuste' o 'No cumple' requieren corrección. "
-            "Después del ajuste se abrirá una nueva revisión de este folio."))
+            "Después del ajuste, el diseñador debe pasar de nuevo su 1er check "
+            "para someter el folio otra vez a 2do check."))
 
     return bytes(pdf.output())
 
@@ -207,23 +215,27 @@ def generar_pdf(proyecto_info, respuestas, resultado, revision_num):
 # UI
 # ---------------------------------------------------------------------
 
-def _email_usuario():
-    """Email del usuario logueado. En Community Cloud (app privada) el
-    email del viewer llega en st.user aunque is_logged_in sea False, por
-    eso se lee directo. En local, sin login, regresa None y se usa el
-    selector de nombres."""
-    try:
-        email = getattr(st.user, "email", None)
-        # "test@example.com" es el placeholder que Streamlit inyecta en
-        # desarrollo/pruebas locales; no es un usuario real.
-        if email and email != "test@example.com":
-            return email
-    except Exception:
-        pass
-    return None
+usuario = st.session_state["usuario"]
+es_evaluador = usuario["rol"] == ROL_EVALUADOR
+tipo_check = TIPO_SEGUNDO if es_evaluador else TIPO_PRIMER
 
+if es_evaluador:
+    st.title("2do check — Revisión de calidad")
+else:
+    st.title("1er check — Autorevisión del diseñador")
+st.caption(f"Sesión de **{usuario['nombre']}**"
+           + (f" ({usuario['email']})" if usuario["email"] else ""))
 
-st.title("Doble check de preproyectos Layout")
+# --- Cola de pendientes (solo evaluadores) ---
+if es_evaluador:
+    pendientes = db.get_pendientes()
+    if pendientes:
+        with st.container(border=True):
+            st.subheader(f"📥 Pendientes de 2do check ({len(pendientes)})")
+            df_pend = pd.DataFrame(pendientes)
+            df_pend.columns = ["Folio", "Cliente", "Campaña", "Diseñador", "Enviado el"]
+            st.dataframe(df_pend, hide_index=True, width="stretch")
+            st.caption("Escribe el folio en la barra lateral para revisarlo.")
 
 # --- Sidebar: datos del proyecto ---
 with st.sidebar:
@@ -232,6 +244,7 @@ with st.sidebar:
 
     folio_info = db.get_folio(folio) if folio else None
     revisiones_folio = db.get_revisiones(folio) if folio else []
+    estado = estado_folio(revisiones_folio)
 
     # Cliente y campaña son atributos del folio: si ya existe se
     # precargan, pero quedan editables para corregir asignaciones.
@@ -256,51 +269,59 @@ with st.sidebar:
         nueva_campana = st.text_input("Nombre de la nueva campaña *",
                                       key=f"nueva_campana_{folio}")
 
-    email = _email_usuario()
-    if email:
-        evaluador = email
-        st.markdown(f"**Evaluador:** {email}")
-    else:
-        evaluador_sel = st.selectbox("Evaluador *", EVALUADORES + [OTRO_EVALUADOR],
-                                     index=None, placeholder="Selecciona tu nombre")
-        if evaluador_sel == OTRO_EVALUADOR:
-            evaluador = st.text_input("Nombre del evaluador")
-        else:
-            evaluador = evaluador_sel or ""
-
     prefill = None
     if revisiones_folio:
-        last = revisiones_folio[-1]
-        st.info(f"Este folio ya tiene {len(revisiones_folio)} revisión(es). "
-                f"La última fue: **{last['resultado']}** (Revisión {last['revision']}).")
-        if last["resultado"] == RESULTADO_CORRECCION:
+        st.info(f"{ESTADO_ICONS.get(estado, '')} Estado: **{estado}** "
+                f"({len(revisiones_folio)} revisión(es) en total).")
+
+        # Prefill según el rol: cada quien retoma su propio último check,
+        # dejando en blanco lo que falló en el último 2do check.
+        propias = [r for r in revisiones_folio if r.get("tipo") == tipo_check]
+        segundas = [r for r in revisiones_folio if r.get("tipo") == TIPO_SEGUNDO]
+        ultima_segunda = segundas[-1] if segundas else None
+        ofrecer_prefill = bool(propias) and (
+            ultima_segunda is not None and ultima_segunda["resultado"] == RESULTADO_CORRECCION
+        )
+        if ofrecer_prefill:
             usar_prefill = st.checkbox(
-                "Precargar respuestas de la última revisión "
+                "Precargar respuestas de la revisión anterior "
                 "(mantiene lo que ya cumplía, deja en blanco lo que falló)",
                 value=True,
             )
             if usar_prefill:
-                prefill = last["respuestas"]
+                prefill = dict(propias[-1]["respuestas"])
+                for item_id, r in ultima_segunda["respuestas"].items():
+                    if r["status"] in STATUS_REQUIRES_MOTIVO:
+                        prefill[item_id] = {"status": None, "motivo": r["motivo"]}
         st.divider()
         with st.expander("Ver historial de revisiones de este folio"):
             hist = pd.DataFrame([
                 {
                     "Revisión": rev["revision"],
+                    "Check": "1er" if rev.get("tipo") == TIPO_PRIMER else "2do",
                     "Fecha": rev["fecha"],
-                    "Evaluador": rev.get("evaluador", ""),
+                    "Realizó": rev.get("evaluador", ""),
                     "Resultado": rev["resultado"],
                 }
                 for rev in revisiones_folio
             ])
             st.dataframe(hist, hide_index=True, width="stretch")
 
-st.caption(
-    "Revisa primero toda la parte técnica con el arte abierto. "
-    "Al final, valida los datos operativos contra la orden de trabajo."
-)
+if es_evaluador:
+    st.caption(
+        "Revisa primero toda la parte técnica con el arte abierto. "
+        "Al final, valida los datos operativos contra la orden de trabajo."
+    )
+else:
+    st.caption(
+        "Autorevisión de tu layout con los mismos 18 puntos del 2do check. "
+        "Solo puedes enviarlo cuando todo esté en ✅ Cumple o ➖ N/A — "
+        "si algo falla, corrígelo en el arte antes de enviar."
+    )
 
 respuestas = {}
 faltan_motivo = []
+fallas_disenador = []
 
 tab_tecnica, tab_operativa = st.tabs([
     "🎨 Parte técnica (con el arte abierto)",
@@ -319,35 +340,40 @@ for bloque_id, bloque_titulo in BLOQUES:
                 for item in [i for i in items_bloque if i["categoria"] == categoria]:
                     item_id = item["id"]
                     # Sin selección por default: cada punto se evalúa a conciencia.
-                    # Solo se precarga si viene del prefill de la revisión anterior,
-                    # y aun así lo que venía fallando se deja en blanco.
                     prefill_item = prefill.get(item_id) if prefill else None
                     default_status = prefill_item["status"] if prefill_item else None
-                    if prefill_item and prefill_item["status"] in STATUS_REQUIRES_MOTIVO:
-                        default_status = None
 
+                    # El key incluye el folio: al cambiar de folio los
+                    # controles se crean de cero (aplica el prefill y no
+                    # se arrastran marcas de un folio a otro).
                     status = st.segmented_control(
                         item["texto"],
                         STATUS_OPTIONS,
                         format_func=lambda s: f"{STATUS_ICONS[s]} {s}",
                         default=default_status if default_status in STATUS_OPTIONS else None,
-                        key=f"status_{item_id}",
+                        key=f"status_{item_id}_{folio}",
                     )
 
                     motivo = ""
                     if status in STATUS_REQUIRES_MOTIVO:
-                        motivo = st.text_area(
-                            f"Motivo / ajuste requerido — {STATUS_ICONS[status]} {status}",
-                            key=f"motivo_{item_id}",
-                            value=prefill_item.get("motivo", "") if prefill_item and prefill_item["status"] == status else "",
-                            placeholder="Describe qué está mal y qué ajuste se necesita...",
-                        )
-                        if not motivo.strip():
-                            faltan_motivo.append(item["texto"])
+                        if es_evaluador:
+                            motivo = st.text_area(
+                                f"Motivo / ajuste requerido — {STATUS_ICONS[status]} {status}",
+                                key=f"motivo_{item_id}_{folio}",
+                                value=(prefill_item.get("motivo", "")
+                                       if prefill_item and prefill_item["status"] == status else ""),
+                                placeholder="Describe qué está mal y qué ajuste se necesita...",
+                            )
+                            if not motivo.strip():
+                                faltan_motivo.append(item["texto"])
+                        else:
+                            st.warning("Corrige este punto en el arte: debe quedar en "
+                                       "✅ Cumple o ➖ N/A para poder enviar a 2do check.")
+                            fallas_disenador.append(item["texto"])
 
                     respuestas[item_id] = {"status": status, "motivo": motivo}
 
-# --- Guardar y generar reporte ---
+# --- Guardar ---
 st.divider()
 
 n_total = len(respuestas)
@@ -355,9 +381,10 @@ n_evaluados = sum(1 for r in respuestas.values() if r["status"] is not None)
 st.progress(n_evaluados / n_total if n_total else 0.0,
             text=f"**{n_evaluados} de {n_total}** puntos evaluados")
 
+boton_label = "Guardar y generar reporte" if es_evaluador else "Enviar a 2do check"
 col_a, col_b = st.columns([1, 3])
 with col_a:
-    guardar = st.button("Guardar y generar reporte", type="primary", width="stretch")
+    guardar = st.button(boton_label, type="primary", width="stretch")
 
 if guardar:
     errores = []
@@ -365,13 +392,14 @@ if guardar:
         errores.append("Falta el folio.")
     if campana_sel == NUEVA_CAMPANA and not nueva_campana.strip():
         errores.append("Falta el nombre de la nueva campaña.")
-    if not evaluador.strip():
-        errores.append("Falta especificar el evaluador.")
     if any(r["status"] is None for r in respuestas.values()):
         errores.append("Hay puntos del checklist sin evaluar.")
-    if faltan_motivo:
+    if es_evaluador and faltan_motivo:
+        errores.append("Falta el motivo en: " + "; ".join(faltan_motivo))
+    if not es_evaluador and fallas_disenador:
         errores.append(
-            "Falta el motivo en: " + "; ".join(faltan_motivo)
+            "No puedes enviar a 2do check con puntos en 'Con ajuste' o 'No cumple'. "
+            "Corrige en el arte: " + "; ".join(fallas_disenador)
         )
 
     if errores:
@@ -388,42 +416,48 @@ if guardar:
             campana_id = nombre_a_id[campana_sel]
             campana_nombre = campana_sel
 
-        resultado = compute_resultado(respuestas)
         fecha = datetime.now(TZ_LOCAL).strftime("%Y-%m-%d %H:%M")
+        resultado = compute_resultado(respuestas) if es_evaluador else RESULTADO_ENVIADO
 
         revision_num = db.save_revision(
-            folio, cliente, campana_id, evaluador, respuestas, resultado, fecha
+            folio, cliente, campana_id, usuario["nombre"], respuestas,
+            resultado, fecha, tipo=tipo_check,
         )
 
-        if resultado == RESULTADO_LISTO:
+        if not es_evaluador:
+            st.success(f"📤 Revisión {revision_num} (1er check) guardada — el folio {folio} "
+                       f"quedó **pendiente de 2do check**.")
+        elif resultado == RESULTADO_LISTO:
             st.success(f"✅ Revisión {revision_num} — Listo para producción")
         else:
             st.warning(f"🔴 Revisión {revision_num} — Requiere corrección. "
-                       f"Al corregir, vuelve a abrir este folio para crear la Revisión {revision_num + 1}.")
+                       f"Cuando el diseñador corrija y pase su 1er check, el folio "
+                       f"volverá a la cola de pendientes.")
 
-        n_cumple = sum(1 for r in respuestas.values() if r["status"] == STATUS_CUMPLE)
-        n_ajuste = sum(1 for r in respuestas.values() if r["status"] == STATUS_AJUSTE)
-        n_no_cumple = sum(1 for r in respuestas.values() if r["status"] == STATUS_NO_CUMPLE)
-        n_na = sum(1 for r in respuestas.values() if r["status"] == STATUS_NA)
+        if es_evaluador:
+            n_cumple = sum(1 for r in respuestas.values() if r["status"] == STATUS_CUMPLE)
+            n_ajuste = sum(1 for r in respuestas.values() if r["status"] == STATUS_AJUSTE)
+            n_no_cumple = sum(1 for r in respuestas.values() if r["status"] == STATUS_NO_CUMPLE)
+            n_na = sum(1 for r in respuestas.values() if r["status"] == STATUS_NA)
 
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("✅ Cumple", n_cumple)
-        m2.metric("⚠️ Con ajuste", n_ajuste)
-        m3.metric("🛑 No cumple", n_no_cumple)
-        m4.metric("➖ N/A", n_na)
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric("✅ Cumple", n_cumple)
+            m2.metric("⚠️ Con ajuste", n_ajuste)
+            m3.metric("🛑 No cumple", n_no_cumple)
+            m4.metric("➖ N/A", n_na)
 
-        proyecto_info = {
-            "folio": folio,
-            "cliente": cliente,
-            "evaluador": evaluador,
-            "fecha": fecha,
-            "campana": campana_nombre,
-        }
-        pdf_bytes = generar_pdf(proyecto_info, respuestas, resultado, revision_num)
+            proyecto_info = {
+                "folio": folio,
+                "cliente": cliente,
+                "evaluador": usuario["nombre"],
+                "fecha": fecha,
+                "campana": campana_nombre,
+            }
+            pdf_bytes = generar_pdf(proyecto_info, respuestas, resultado, revision_num)
 
-        st.download_button(
-            label="Descargar reporte en PDF (para el diseñador)",
-            data=pdf_bytes,
-            file_name=f"Reporte_{folio}_rev{revision_num}.pdf",
-            mime="application/pdf",
-        )
+            st.download_button(
+                label="Descargar reporte en PDF (para el diseñador)",
+                data=pdf_bytes,
+                file_name=f"Reporte_{folio}_rev{revision_num}.pdf",
+                mime="application/pdf",
+            )

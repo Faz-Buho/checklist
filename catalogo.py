@@ -24,6 +24,34 @@ STATUS_REQUIRES_MOTIVO = {STATUS_AJUSTE, STATUS_NO_CUMPLE}
 
 RESULTADO_LISTO = "Listo para producción"
 RESULTADO_CORRECCION = "Requiere corrección"
+RESULTADO_ENVIADO = "Enviado a 2do check"
+
+# Tipos de revisión: el 1er check lo hace el diseñador que desarrolló el
+# layout (solo se puede guardar "limpio"); el 2do check es la revisión
+# independiente de calidad.
+TIPO_PRIMER = "primer"
+TIPO_SEGUNDO = "segundo"
+
+# Estado del folio, derivado de su última revisión
+ESTADO_PENDIENTE = "Pendiente de 2do check"
+ESTADO_CORRECCION = "En corrección"
+ESTADO_LISTO = "Listo para producción"
+
+from zoneinfo import ZoneInfo
+
+# El servidor de Streamlit Cloud corre en UTC; las fechas se registran
+# en hora de México.
+TZ_LOCAL = ZoneInfo("America/Mexico_City")
+
+
+def estado_folio(revisiones):
+    """Deriva el estado del folio de su última revisión (o None si no hay)."""
+    if not revisiones:
+        return None
+    ultima = revisiones[-1]
+    if ultima.get("tipo") == TIPO_PRIMER:
+        return ESTADO_PENDIENTE
+    return ESTADO_LISTO if ultima["resultado"] == RESULTADO_LISTO else ESTADO_CORRECCION
 
 # Cada ítem: id único, categoría (para agrupar), texto a mostrar
 CHECKLIST_ITEMS = [

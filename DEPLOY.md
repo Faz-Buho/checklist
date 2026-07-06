@@ -47,13 +47,47 @@ La app corre igual en local (SQLite, sin configurar nada) y en la nube
 
 3. Deploy. Cada push a `main` redespliega solo.
 
-## 4. Acceso del equipo e identidad del evaluador
+## 4. Acceso del equipo e identidad
 
-1. En la configuración de la app (Settings → Sharing): pon la app como
-   **privada** y agrega los emails del equipo como viewers.
-2. Con eso, cada quien entra con su cuenta y la app **firma cada revisión
-   con el email del usuario logueado automáticamente** — el selector de
-   nombres solo aparece cuando no hay login (uso local).
+Hay dos niveles, de menos a más control:
+
+### Nivel A — Viewers de Streamlit Cloud (el actual)
+
+1. En la configuración de la app (Settings → Sharing): app **privada** y
+   agregar los emails del equipo (evaluadores Y diseñadores) como viewers.
+2. Dentro de la app, cada quien elige su nombre en el selector "¿Quién
+   eres?" — el rol (evaluador/diseñador) se deriva del nombre elegido
+   (ver `auth.py`). Community Cloud no le pasa el email del viewer a la
+   app, por eso el selector.
+
+### Nivel B — Login de Google restringido por dominio (@buhoms.com / @buho.com)
+
+La app trae soporte para login nativo con Google: se activa solo cuando
+existe la sección `[auth]` en los Secrets. Con esto el acceso lo controla
+la app (solo correos de los dominios permitidos o listados en `auth.py`),
+cada quien queda identificado por su correo real y el rol se asigna solo.
+
+1. En [Google Cloud Console](https://console.cloud.google.com) →
+   APIs & Services → Credentials → **Create OAuth client ID** (tipo Web).
+   - Authorized redirect URI: `https://buho-checklist.streamlit.app/oauth2callback`
+   - (para probar en local agrega también `http://localhost:8501/oauth2callback`)
+2. Agrega a los Secrets de la app (además del DATABASE_URL):
+
+   ```toml
+   [auth]
+   redirect_uri = "https://buho-checklist.streamlit.app/oauth2callback"
+   cookie_secret = "UNA-CADENA-ALEATORIA-LARGA"
+   client_id = "xxx.apps.googleusercontent.com"
+   client_secret = "GOCSPX-..."
+   server_metadata_url = "https://accounts.google.com/.well-known/openid-configuration"
+   ```
+
+3. En Settings → Sharing pon la app **pública** (el login ahora lo hace
+   la propia app; si la dejas privada, el equipo tendría doble login).
+4. En `auth.py`: registra los correos de evaluadores en `EVALUADORES` y
+   los de diseñadores (con su nombre bonito) en `DISENADORES`. Cualquier
+   otro correo de los dominios permitidos entra como diseñador; correos
+   fuera de dominio quedan bloqueados con mensaje.
 
 ## Probar la conexión a Supabase desde local (opcional)
 

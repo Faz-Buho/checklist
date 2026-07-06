@@ -1,25 +1,46 @@
 """
-Página de dashboard: resultados por campaña (10-20 folios por campaña).
-Se ejecuta vía st.navigation desde app.py.
+Página de dashboard: resultados por campaña (10-20 folios por campaña)
+y cola de pendientes de 2do check. Se ejecuta vía st.navigation desde
+app.py.
 
-Métricas clave:
+Métricas clave (calculadas SOLO sobre 2dos checks, la revisión
+independiente de calidad; los 1er checks del diseñador no cuentan
+porque siempre se guardan "limpios"):
 - % de folios listos a la primera (first-pass yield): calidad real del
   proceso, no solo del retrabajo.
-- Promedio de revisiones por folio: cuánto retrabajo genera la campaña.
+- 2dos checks por folio: cuánto retrabajo genera la campaña.
 - Top de puntos que más fallan: señala problemas de proceso (si un punto
   falla en muchos folios, la causa no es un diseñador).
 """
+
+from datetime import datetime
 
 import altair as alt
 import pandas as pd
 import streamlit as st
 
 import db
-from catalogo import ITEM_TEXTO, RESULTADO_LISTO, STATUS_REQUIRES_MOTIVO
+from catalogo import (
+    ESTADO_CORRECCION,
+    ESTADO_LISTO,
+    ESTADO_PENDIENTE,
+    ITEM_TEXTO,
+    RESULTADO_LISTO,
+    STATUS_REQUIRES_MOTIVO,
+    TIPO_PRIMER,
+    TIPO_SEGUNDO,
+    TZ_LOCAL,
+)
 
 # Azul validado para barras de una sola serie (ver skill de dataviz);
 # la identidad no depende del color: todas las barras llevan etiqueta.
 COLOR_BARRA = "#2a78d6"
+
+ESTADO_TEXTO = {
+    ESTADO_PENDIENTE: "🕓 Pendiente de 2do check",
+    ESTADO_CORRECCION: "🔴 En corrección",
+    ESTADO_LISTO: "✅ Listo",
+}
 
 st.title("Dashboard de campañas")
 
@@ -36,6 +57,29 @@ for c in campanas:
 seleccion = st.selectbox("Campaña", list(opciones))
 filtro = opciones[seleccion]
 
+# --- Cola de pendientes de 2do check ---
+pendientes = pd.DataFrame(db.get_pendientes())
+if not pendientes.empty:
+    if seleccion == SIN_CAMPANA:
+        pendientes = pendientes[pendientes["campana"].isna()]
+    elif seleccion != TODAS:
+        nombre_campana = seleccion.replace(" 🔒 (cerrada)", "")
+        pendientes = pendientes[pendientes["campana"] == nombre_campana]
+
+if not pendientes.empty:
+    ahora = datetime.now(TZ_LOCAL).replace(tzinfo=None)
+    pendientes = pendientes.assign(espera=[
+        round((ahora - datetime.strptime(f, "%Y-%m-%d %H:%M")).total_seconds() / 86400, 1)
+        for f in pendientes["fecha"]
+    ])
+    with st.container(border=True):
+        st.subheader(f"🕓 Pendientes de 2do check ({len(pendientes)})")
+        tabla_pend = pendientes[["folio", "cliente", "campana", "disenador", "fecha", "espera"]].copy()
+        tabla_pend.columns = ["Folio", "Cliente", "Campaña", "Diseñador",
+                              "Enviado el", "Días esperando"]
+        st.dataframe(tabla_pend.sort_values("Días esperando", ascending=False),
+                     hide_index=True, width="stretch")
+
 rev_rows = db.get_revisiones_dashboard(filtro)
 
 if not rev_rows:
@@ -43,38 +87,51 @@ if not rev_rows:
             "Captura folios en la página **📝 Captura** y aquí aparecerán los resultados.")
 else:
     df_rev = pd.DataFrame(rev_rows)
+    df_seg = df_rev[df_rev["tipo"] == TIPO_SEGUNDO]
 
-    # Estado por folio: el resultado de su última revisión define si está
-    # listo o sigue en corrección; la revisión 1 define el "a la primera".
-    ultimas = df_rev.loc[df_rev.groupby("folio")["revision"].idxmax()]
-    primeras = df_rev[df_rev["revision"] == 1]
+    # Estado por folio: lo define su última revisión (de cualquier tipo).
+    ultimas = df_rev.loc[df_rev.groupby("folio")["revision"].idxmax()].copy()
+    ultimas["estado"] = [
+        ESTADO_PENDIENTE if t == TIPO_PRIMER
+        else (ESTADO_LISTO if r == RESULTADO_LISTO else ESTADO_CORRECCION)
+        for t, r in zip(ultimas["tipo"], ultimas["resultado"])
+    ]
 
     n_folios = len(ultimas)
-    n_listos = int((ultimas["resultado"] == RESULTADO_LISTO).sum())
-    n_correccion = n_folios - n_listos
-    a_la_primera = int((primeras["resultado"] == RESULTADO_LISTO).sum())
-    yield_pct = 100 * a_la_primera / n_folios if n_folios else 0
-    prom_revisiones = df_rev.groupby("folio")["revision"].max().mean()
+    n_listos = int((ultimas["estado"] == ESTADO_LISTO).sum())
+    n_correccion = int((ultimas["estado"] == ESTADO_CORRECCION).sum())
+    n_pendientes = int((ultimas["estado"] == ESTADO_PENDIENTE).sum())
+
+    # "A la primera": el PRIMER 2do check del folio salió listo.
+    if df_seg.empty:
+        yield_pct = None
+        prom_seg = None
+    else:
+        primeras_seg = df_seg.loc[df_seg.groupby("folio")["revision"].idxmin()]
+        yield_pct = 100 * (primeras_seg["resultado"] == RESULTADO_LISTO).mean()
+        prom_seg = df_seg.groupby("folio").size().mean()
 
     m1, m2, m3, m4, m5 = st.columns(5)
     m1.metric("Folios", n_folios)
     m2.metric("✅ Listos", n_listos)
     m3.metric("🔴 En corrección", n_correccion)
-    m4.metric("Listos a la primera", f"{yield_pct:.0f} %",
-              help="Porcentaje de folios cuyo resultado fue 'Listo para producción' en la Revisión 1")
-    m5.metric("Revisiones por folio", f"{prom_revisiones:.1f}",
-              help="Promedio de revisiones que necesita un folio; 1.0 significa cero retrabajo")
+    m4.metric("🕓 Pendientes", n_pendientes)
+    m5.metric("Listos a la primera",
+              "—" if yield_pct is None else f"{yield_pct:.0f} %",
+              help="Porcentaje de folios cuyo PRIMER 2do check salió "
+                   "'Listo para producción'")
 
     st.divider()
 
     col_izq, col_der = st.columns([3, 2])
 
-    # --- Top de puntos que más fallan ---
+    # --- Top de puntos que más fallan (solo 2dos checks) ---
     with col_izq:
         st.subheader("Puntos que más fallan")
         resp_rows = db.get_respuestas_dashboard(filtro)
         df_resp = pd.DataFrame(resp_rows)
-        fallas = df_resp[df_resp["status"].isin(STATUS_REQUIRES_MOTIVO)]
+        fallas = (df_resp[df_resp["status"].isin(STATUS_REQUIRES_MOTIVO)]
+                  if not df_resp.empty else df_resp)
         if fallas.empty:
             st.success("Ninguna falla registrada en esta selección. 🎉")
         else:
@@ -100,32 +157,31 @@ else:
     with col_der:
         st.subheader("Estado por folio")
         tabla = ultimas.merge(
-            df_rev.groupby("folio")["revision"].max().rename("revisiones"),
-            on="folio",
+            df_seg.groupby("folio").size().rename("segundos_checks"),
+            on="folio", how="left",
         )
-        tabla["estado"] = tabla["resultado"].map(
-            lambda r: "✅ Listo" if r == RESULTADO_LISTO else "🔴 En corrección")
-        tabla = tabla[["folio", "cliente", "campana", "revisiones", "estado", "fecha"]]
-        tabla.columns = ["Folio", "Cliente", "Campaña", "Revisiones", "Estado", "Última revisión"]
+        tabla["segundos_checks"] = tabla["segundos_checks"].fillna(0).astype(int)
+        tabla["estado"] = tabla["estado"].map(ESTADO_TEXTO)
+        tabla = tabla[["folio", "cliente", "campana", "segundos_checks", "estado", "fecha"]]
+        tabla.columns = ["Folio", "Cliente", "Campaña", "2dos checks", "Estado", "Última revisión"]
         if seleccion != TODAS:
             tabla = tabla.drop(columns=["Campaña"])
         st.dataframe(tabla.sort_values("Última revisión", ascending=False),
                      hide_index=True, width="stretch")
 
     # --- Comparativa entre campañas (solo en vista global) ---
-    if seleccion == TODAS and df_rev["campana"].nunique(dropna=True) > 1:
+    if (seleccion == TODAS and not df_seg.empty
+            and df_rev["campana"].nunique(dropna=True) > 1):
         st.divider()
         st.subheader("Comparativa entre campañas")
-        comp_ultimas = ultimas.copy()
-        comp_ultimas["campana"] = comp_ultimas["campana"].fillna(SIN_CAMPANA)
-        comp_primeras = primeras.copy()
-        comp_primeras["campana"] = comp_primeras["campana"].fillna(SIN_CAMPANA)
+        primeras_seg = df_seg.loc[df_seg.groupby("folio")["revision"].idxmin()].copy()
+        primeras_seg["campana"] = primeras_seg["campana"].fillna(SIN_CAMPANA)
 
-        resumen = comp_ultimas.groupby("campana").agg(folios=("folio", "count")).reset_index()
-        yield_por_campana = (comp_primeras.assign(
-            listo=(comp_primeras["resultado"] == RESULTADO_LISTO).astype(int))
-            .groupby("campana")["listo"].mean().mul(100).rename("a_la_primera"))
-        resumen = resumen.merge(yield_por_campana, on="campana")
+        resumen = (primeras_seg.assign(
+            listo=(primeras_seg["resultado"] == RESULTADO_LISTO).astype(int))
+            .groupby("campana").agg(folios=("folio", "count"), a_la_primera=("listo", "mean"))
+            .reset_index())
+        resumen["a_la_primera"] *= 100
         resumen["etiqueta"] = resumen.apply(
             lambda r: f"{r['a_la_primera']:.0f} % ({r['folios']} folios)", axis=1)
 
