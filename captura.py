@@ -39,9 +39,8 @@ from catalogo import (
 # con viewers restringidos por email, el evaluador se toma solo del
 # usuario logueado y este selector no aparece.
 EVALUADORES = [
-    "Nombre Apellido 1",
-    "Nombre Apellido 2",
-    "Nombre Apellido 3",
+    "Pablo Faz",
+    "Mariana Hernandez",
 ]
 OTRO_EVALUADOR = "Otro (especificar)"
 
