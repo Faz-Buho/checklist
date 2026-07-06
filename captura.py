@@ -219,6 +219,17 @@ usuario = st.session_state["usuario"]
 es_evaluador = usuario["rol"] == ROL_EVALUADOR
 tipo_check = TIPO_SEGUNDO if es_evaluador else TIPO_PRIMER
 
+# Estado diferido (se aplica ANTES de instanciar widgets, que es cuando
+# Streamlit permite modificarlos):
+# - limpiar_folio: tras guardar se vacía el campo de folio; con eso los
+#   controles del folio dejan de renderizarse y Streamlit descarta su
+#   estado solo (evita dobles guardados y deja lista la página).
+# - folio_abrir: un clic en una tabla de 🏠 Inicio precarga ese folio.
+if st.session_state.pop("limpiar_folio", None):
+    st.session_state["folio"] = ""
+if "folio_abrir" in st.session_state:
+    st.session_state["folio"] = st.session_state.pop("folio_abrir")
+
 if es_evaluador:
     st.title("2do check — Revisión de calidad")
 else:
@@ -226,21 +237,10 @@ else:
 st.caption(f"Sesión de **{usuario['nombre']}**"
            + (f" ({usuario['email']})" if usuario["email"] else ""))
 
-# --- Cola de pendientes (solo evaluadores) ---
-if es_evaluador:
-    pendientes = db.get_pendientes()
-    if pendientes:
-        with st.container(border=True):
-            st.subheader(f"📥 Pendientes de 2do check ({len(pendientes)})")
-            df_pend = pd.DataFrame(pendientes)
-            df_pend.columns = ["Folio", "Cliente", "Campaña", "Diseñador", "Enviado el"]
-            st.dataframe(df_pend, hide_index=True, width="stretch")
-            st.caption("Escribe el folio en la barra lateral para revisarlo.")
-
 # --- Sidebar: datos del proyecto ---
 with st.sidebar:
     st.header("Datos del proyecto")
-    folio = st.text_input("Folio *").strip()
+    folio = st.text_input("Folio *", key="folio").strip()
 
     folio_info = db.get_folio(folio) if folio else None
     revisiones_folio = db.get_revisiones(folio) if folio else []
@@ -306,6 +306,57 @@ with st.sidebar:
                 for rev in revisiones_folio
             ])
             st.dataframe(hist, hide_index=True, width="stretch")
+
+# --- Sin folio: mostrar la confirmación del último guardado o la guía ---
+ultimo_guardado = st.session_state.get("ultimo_guardado")
+if folio:
+    st.session_state.pop("ultimo_guardado", None)
+elif ultimo_guardado:
+    ug = ultimo_guardado
+    if ug["tipo"] == TIPO_PRIMER:
+        st.success(f"📤 Revisión {ug['revision']} (1er check) guardada — el folio "
+                   f"**{ug['folio']}** quedó **pendiente de 2do check**.")
+    elif ug["resultado"] == RESULTADO_LISTO:
+        st.success(f"✅ Revisión {ug['revision']} del folio **{ug['folio']}** — "
+                   f"Listo para producción")
+    else:
+        st.warning(f"🔴 Revisión {ug['revision']} del folio **{ug['folio']}** — "
+                   f"Requiere corrección. Cuando el diseñador corrija y pase su "
+                   f"1er check, el folio volverá a la cola de pendientes.")
+    if ug.get("conteos"):
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("✅ Cumple", ug["conteos"][STATUS_CUMPLE])
+        m2.metric("⚠️ Con ajuste", ug["conteos"][STATUS_AJUSTE])
+        m3.metric("🛑 No cumple", ug["conteos"][STATUS_NO_CUMPLE])
+        m4.metric("➖ N/A", ug["conteos"][STATUS_NA])
+    if ug.get("pdf"):
+        st.download_button(
+            label="Descargar reporte en PDF (para el diseñador)",
+            data=ug["pdf"],
+            file_name=f"Reporte_{ug['folio']}_rev{ug['revision']}.pdf",
+            mime="application/pdf",
+        )
+    st.page_link("inicio.py", label="Volver al inicio", icon="🏠")
+    st.stop()
+else:
+    st.info("👈 Escribe el folio en la barra lateral, o ábrelo con un clic "
+            "desde la página de inicio.")
+    st.page_link("inicio.py", label="Ir al inicio", icon="🏠")
+    st.stop()
+
+# --- Encabezado de contexto: qué se está evaluando ---
+st.subheader(f"📄 Folio {folio}")
+partes = []
+if cliente:
+    partes.append(f"**Cliente:** {cliente}")
+if campana_sel not in (SIN_CAMPANA, NUEVA_CAMPANA):
+    partes.append(f"**Campaña:** {campana_sel}")
+if estado:
+    partes.append(f"**Estado:** {ESTADO_ICONS.get(estado, '')} {estado}")
+else:
+    partes.append("**Folio nuevo**")
+partes.append(f"**Esta revisión será la #{len(revisiones_folio) + 1}**")
+st.markdown(" · ".join(partes))
 
 if es_evaluador:
     st.caption(
@@ -424,28 +475,11 @@ if guardar:
             resultado, fecha, tipo=tipo_check,
         )
 
-        if not es_evaluador:
-            st.success(f"📤 Revisión {revision_num} (1er check) guardada — el folio {folio} "
-                       f"quedó **pendiente de 2do check**.")
-        elif resultado == RESULTADO_LISTO:
-            st.success(f"✅ Revisión {revision_num} — Listo para producción")
-        else:
-            st.warning(f"🔴 Revisión {revision_num} — Requiere corrección. "
-                       f"Cuando el diseñador corrija y pase su 1er check, el folio "
-                       f"volverá a la cola de pendientes.")
-
+        conteos = None
+        pdf_bytes = None
         if es_evaluador:
-            n_cumple = sum(1 for r in respuestas.values() if r["status"] == STATUS_CUMPLE)
-            n_ajuste = sum(1 for r in respuestas.values() if r["status"] == STATUS_AJUSTE)
-            n_no_cumple = sum(1 for r in respuestas.values() if r["status"] == STATUS_NO_CUMPLE)
-            n_na = sum(1 for r in respuestas.values() if r["status"] == STATUS_NA)
-
-            m1, m2, m3, m4 = st.columns(4)
-            m1.metric("✅ Cumple", n_cumple)
-            m2.metric("⚠️ Con ajuste", n_ajuste)
-            m3.metric("🛑 No cumple", n_no_cumple)
-            m4.metric("➖ N/A", n_na)
-
+            conteos = {s: sum(1 for r in respuestas.values() if r["status"] == s)
+                       for s in STATUS_OPTIONS}
             proyecto_info = {
                 "folio": folio,
                 "cliente": cliente,
@@ -455,9 +489,16 @@ if guardar:
             }
             pdf_bytes = generar_pdf(proyecto_info, respuestas, resultado, revision_num)
 
-            st.download_button(
-                label="Descargar reporte en PDF (para el diseñador)",
-                data=pdf_bytes,
-                file_name=f"Reporte_{folio}_rev{revision_num}.pdf",
-                mime="application/pdf",
-            )
+        # La confirmación (y el PDF) se muestran en el siguiente rerun con
+        # el folio ya limpio: así el botón de descarga no se esfuma al
+        # interactuar y no se puede guardar dos veces por accidente.
+        st.session_state["ultimo_guardado"] = {
+            "folio": folio,
+            "tipo": tipo_check,
+            "resultado": resultado,
+            "revision": revision_num,
+            "conteos": conteos,
+            "pdf": pdf_bytes,
+        }
+        st.session_state["limpiar_folio"] = folio
+        st.rerun()

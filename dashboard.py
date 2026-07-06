@@ -13,8 +13,6 @@ porque siempre se guardan "limpios"):
   falla en muchos folios, la causa no es un diseñador).
 """
 
-from datetime import datetime
-
 import altair as alt
 import pandas as pd
 import streamlit as st
@@ -29,7 +27,6 @@ from catalogo import (
     STATUS_REQUIRES_MOTIVO,
     TIPO_PRIMER,
     TIPO_SEGUNDO,
-    TZ_LOCAL,
 )
 
 # Azul validado para barras de una sola serie (ver skill de dataviz);
@@ -56,29 +53,6 @@ for c in campanas:
 
 seleccion = st.selectbox("Campaña", list(opciones))
 filtro = opciones[seleccion]
-
-# --- Cola de pendientes de 2do check ---
-pendientes = pd.DataFrame(db.get_pendientes())
-if not pendientes.empty:
-    if seleccion == SIN_CAMPANA:
-        pendientes = pendientes[pendientes["campana"].isna()]
-    elif seleccion != TODAS:
-        nombre_campana = seleccion.replace(" 🔒 (cerrada)", "")
-        pendientes = pendientes[pendientes["campana"] == nombre_campana]
-
-if not pendientes.empty:
-    ahora = datetime.now(TZ_LOCAL).replace(tzinfo=None)
-    pendientes = pendientes.assign(espera=[
-        round((ahora - datetime.strptime(f, "%Y-%m-%d %H:%M")).total_seconds() / 86400, 1)
-        for f in pendientes["fecha"]
-    ])
-    with st.container(border=True):
-        st.subheader(f"🕓 Pendientes de 2do check ({len(pendientes)})")
-        tabla_pend = pendientes[["folio", "cliente", "campana", "disenador", "fecha", "espera"]].copy()
-        tabla_pend.columns = ["Folio", "Cliente", "Campaña", "Diseñador",
-                              "Enviado el", "Días esperando"]
-        st.dataframe(tabla_pend.sort_values("Días esperando", ascending=False),
-                     hide_index=True, width="stretch")
 
 rev_rows = db.get_revisiones_dashboard(filtro)
 

@@ -2,9 +2,11 @@
 Doble check de preproyectos Layout — punto de entrada
 -----------------------------------------------------
 Router de la app multipágina:
+- Inicio (inicio.py): bandeja de trabajo por rol (pendientes, en
+  corrección, liberados) con clic para abrir cada folio.
 - Captura (captura.py): 1er check (diseñador) o 2do check (calidad),
   según el rol del usuario.
-- Dashboard (dashboard.py): resultados por campaña y cola de pendientes.
+- Dashboard (dashboard.py): métricas y resultados por campaña.
 
 Cómo correrla:
     pip install -r requirements.txt
@@ -29,7 +31,8 @@ usuario = auth.get_usuario()
 st.session_state["usuario"] = usuario
 
 pagina = st.navigation([
-    st.Page("captura.py", title="Captura", icon="📝", default=True),
+    st.Page("inicio.py", title="Inicio", icon="🏠", default=True),
+    st.Page("captura.py", title="Captura", icon="📝"),
     st.Page("dashboard.py", title="Dashboard", icon="📊"),
 ])
 pagina.run()
