@@ -28,6 +28,26 @@ st.set_page_config(page_title="Doble check de preproyectos", page_icon="✅", la
 db.init_db()
 
 usuario = auth.get_usuario()
+
+# Interruptor de vista para admins: permite ver la app como evaluador o
+# como diseñador sin cambiar de cuenta (para probar ambos flujos).
+if auth.es_admin(usuario):
+    _, col_switch = st.columns([3, 1])
+    with col_switch:
+        vista = st.segmented_control(
+            "Ver como",
+            ["🔎 Evaluador", "🎨 Diseñador"],
+            default="🔎 Evaluador",
+            key="vista_admin",
+            label_visibility="collapsed",
+            help="Solo para administradores: cambia entre la vista de "
+                 "evaluador (2do check) y la de diseñador (1er check).",
+        )
+    if vista == "🎨 Diseñador":
+        usuario = {**usuario, "rol": auth.ROL_DISENADOR}
+    else:
+        usuario = {**usuario, "rol": auth.ROL_EVALUADOR}
+
 st.session_state["usuario"] = usuario
 
 pagina = st.navigation([

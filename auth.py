@@ -24,6 +24,15 @@ DOMINIOS_PERMITIDOS = {"buhoms.com", "buho.com"}
 ROL_EVALUADOR = "evaluador"
 ROL_DISENADOR = "disenador"
 
+# Usuarios que pueden alternar la vista entre evaluador y diseñador (para
+# probar ambos flujos). Por correo (con login) o por nombre (modo local).
+ADMINS = {"pfaz@buhoms.com", "pablo.faz.meza@gmail.com"}
+ADMINS_LOCAL = {"Pablo Faz"}
+
+
+def es_admin(usuario):
+    return usuario.get("email") in ADMINS or usuario.get("nombre") in ADMINS_LOCAL
+
 # Correos con rol de evaluador (2do check). Cualquier otro correo de un
 # dominio permitido entra como diseñador.
 EVALUADORES = {
