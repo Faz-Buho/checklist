@@ -34,17 +34,15 @@ EVALUADORES = {
 
 # Correos de diseñadores con nombre para mostrar (opcional: un correo de
 # dominio permitido que no esté aquí entra igual, mostrando su correo).
-# TODO: reemplazar los placeholders por los nombres reales.
 DISENADORES = {
-    "mfernandez@buhoms.com": "Diseñador 1",
-    "fhernandez@buhoms.com": "Diseñador 2",
-    "dsifuentes@buhoms.com": "Diseñador 3",
+    "mfernandez@buhoms.com": "Mauricio Fernandez",
+    "fhernandez@buhoms.com": "Fatima Hernandez",
+    "dsifuentes@buhoms.com": "Dana Sofia Sifuentes",
 }
 
-# Nombres para el modo sin login (selector). Reemplazar los placeholders
-# de diseñador por los nombres reales cuando estén definidos.
+# Nombres para el modo sin login (selector de "¿Quién eres?")
 EVALUADORES_LOCAL = ["Pablo Faz", "Mariana Hernandez"]
-DISENADORES_LOCAL = ["Diseñador 1", "Diseñador 2", "Diseñador 3"]
+DISENADORES_LOCAL = ["Mauricio Fernandez", "Fatima Hernandez", "Dana Sofia Sifuentes"]
 
 
 def _auth_configurado():
