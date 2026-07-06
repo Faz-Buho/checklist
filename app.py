@@ -36,14 +36,14 @@ if auth.es_admin(usuario):
     with col_switch:
         vista = st.segmented_control(
             "Ver como",
-            ["🔎 Evaluador", "🎨 Diseñador"],
-            default="🔎 Evaluador",
+            ["Evaluador", "Diseñador"],
+            default="Evaluador",
             key="vista_admin",
             label_visibility="collapsed",
             help="Solo para administradores: cambia entre la vista de "
                  "evaluador (2do check) y la de diseñador (1er check).",
         )
-    if vista == "🎨 Diseñador":
+    if vista == "Diseñador":
         usuario = {**usuario, "rol": auth.ROL_DISENADOR}
     else:
         usuario = {**usuario, "rol": auth.ROL_EVALUADOR}
@@ -51,8 +51,8 @@ if auth.es_admin(usuario):
 st.session_state["usuario"] = usuario
 
 pagina = st.navigation([
-    st.Page("inicio.py", title="Inicio", icon="🏠", default=True),
-    st.Page("captura.py", title="Captura", icon="📝"),
-    st.Page("dashboard.py", title="Dashboard", icon="📊"),
+    st.Page("inicio.py", title="Inicio", icon=":material/home:", default=True),
+    st.Page("captura.py", title="Captura", icon=":material/checklist:"),
+    st.Page("dashboard.py", title="Dashboard", icon=":material/monitoring:"),
 ])
 pagina.run()
