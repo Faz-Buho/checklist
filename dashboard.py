@@ -18,6 +18,7 @@ import pandas as pd
 import streamlit as st
 
 import db
+from auth import ROL_EVALUADOR
 from catalogo import (
     ESTADO_CORRECCION,
     ESTADO_LISTO,
@@ -28,6 +29,8 @@ from catalogo import (
     TIPO_PRIMER,
     TIPO_SEGUNDO,
 )
+
+es_evaluador = st.session_state["usuario"]["rol"] == ROL_EVALUADOR
 
 # Azul validado para barras de una sola serie (ver skill de dataviz);
 # la identidad no depende del color: todas las barras llevan etiqueta.
@@ -172,23 +175,24 @@ else:
         st.altair_chart((barras + etiquetas).properties(
             height=max(100, 34 * len(resumen))), width="stretch")
 
-# --- Gestión de campañas ---
-st.divider()
-with st.expander("⚙️ Gestión de campañas"):
-    st.caption("Cerrar una campaña solo la oculta del selector de captura; "
-               "no bloquea nada y siempre se puede reabrir.")
-    if not campanas:
-        st.write("No hay campañas todavía; se crean desde la página de captura "
-                 "al dar de alta un folio.")
-    for c in campanas:
-        col_nombre, col_estado, col_accion = st.columns([3, 1, 1])
-        col_nombre.write(c["nombre"])
-        col_estado.write("🔓 Abierta" if c["estado"] == "abierta" else "🔒 Cerrada")
-        if c["estado"] == "abierta":
-            if col_accion.button("Cerrar", key=f"cerrar_{c['id']}"):
-                db.cambiar_estado_campana(c["id"], "cerrada")
-                st.rerun()
-        else:
-            if col_accion.button("Reabrir", key=f"reabrir_{c['id']}"):
-                db.cambiar_estado_campana(c["id"], "abierta")
-                st.rerun()
+# --- Gestión de campañas (solo evaluadores) ---
+if es_evaluador:
+    st.divider()
+    with st.expander("⚙️ Gestión de campañas"):
+        st.caption("Cerrar una campaña solo la oculta del selector de captura; "
+                   "no bloquea nada y siempre se puede reabrir.")
+        if not campanas:
+            st.write("No hay campañas todavía; se crean desde la página de captura "
+                     "al dar de alta un folio.")
+        for c in campanas:
+            col_nombre, col_estado, col_accion = st.columns([3, 1, 1])
+            col_nombre.write(c["nombre"])
+            col_estado.write("🔓 Abierta" if c["estado"] == "abierta" else "🔒 Cerrada")
+            if c["estado"] == "abierta":
+                if col_accion.button("Cerrar", key=f"cerrar_{c['id']}"):
+                    db.cambiar_estado_campana(c["id"], "cerrada")
+                    st.rerun()
+            else:
+                if col_accion.button("Reabrir", key=f"reabrir_{c['id']}"):
+                    db.cambiar_estado_campana(c["id"], "abierta")
+                    st.rerun()
