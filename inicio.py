@@ -56,19 +56,39 @@ disenador_por_folio = (primeros.loc[primeros.groupby("folio")["revision"].idxmax
 ultimas["disenador"] = ultimas["folio"].map(disenador_por_folio)
 
 
+# Semáforo de espera: verde hasta 1 día, amarillo hasta 3, rojo después.
+UMBRAL_VERDE_DIAS = 1
+UMBRAL_AMARILLO_DIAS = 3
+
+
 def _dias_desde(fecha_str):
     ahora = datetime.now(TZ_LOCAL).replace(tzinfo=None)
     return round((ahora - datetime.strptime(fecha_str, "%Y-%m-%d %H:%M")).total_seconds() / 86400, 1)
 
 
-def tabla_abrible(df_view, key):
-    """Tabla donde el clic en una fila abre el folio en Captura."""
-    sel = st.dataframe(df_view, hide_index=True, width="stretch",
-                       on_select="rerun", selection_mode="single-row", key=key)
-    filas = sel.selection.rows
-    if filas:
-        st.session_state["folio_abrir"] = df_view.iloc[filas[0]]["Folio"]
-        st.switch_page("captura.py")
+def _semaforo(dias):
+    if dias <= UMBRAL_VERDE_DIAS:
+        emoji = "🟢"
+    elif dias <= UMBRAL_AMARILLO_DIAS:
+        emoji = "🟡"
+    else:
+        emoji = "🔴"
+    return f"{emoji} hoy" if dias < 1 else f"{emoji} {dias:.1f} d"
+
+
+def tabla_accionable(df_view, key, boton="Abrir →"):
+    """Tabla con un botón por fila que abre el folio en Captura."""
+    spec = [1.0] * len(df_view.columns) + [0.6]
+    encabezados = st.columns(spec)
+    for col, nombre in zip(encabezados, df_view.columns):
+        col.markdown(f"**{nombre}**")
+    for _, fila in df_view.iterrows():
+        cols = st.columns(spec, vertical_alignment="center")
+        for col, valor in zip(cols, fila):
+            col.write(valor)
+        if cols[-1].button(boton, key=f"{key}_{fila['Folio']}"):
+            st.session_state["folio_abrir"] = fila["Folio"]
+            st.switch_page("captura.py")
 
 
 if es_evaluador:
@@ -79,18 +99,24 @@ if es_evaluador:
         st.success("No hay folios esperando 2do check. 🎉")
     else:
         view = pend[["folio", "cliente", "campana", "disenador", "fecha"]].copy()
-        view["espera"] = view["fecha"].map(_dias_desde)
-        view.columns = ["Folio", "Cliente", "Campaña", "Diseñador", "Enviado el", "Días esperando"]
-        st.caption("Haz clic en una fila para abrir el 2do check de ese folio.")
-        tabla_abrible(view.sort_values("Días esperando", ascending=False), "tabla_pendientes")
+        view["dias"] = view["fecha"].map(_dias_desde)
+        view = view.sort_values("dias", ascending=False)
+        view["espera"] = view["dias"].map(_semaforo)
+        view = view.drop(columns=["dias"])
+        view.columns = ["Folio", "Cliente", "Campaña", "Diseñador", "Enviado el", "Espera"]
+        tabla_accionable(view, "pend", boton="Revisar →")
 
     # --- En corrección: esperando a los diseñadores ---
     corr = ultimas[ultimas["estado"] == ESTADO_CORRECCION]
     if not corr.empty:
         st.subheader(f"🔴 En corrección con el diseñador ({len(corr)})")
         view = corr[["folio", "cliente", "campana", "disenador", "fecha"]].copy()
-        view.columns = ["Folio", "Cliente", "Campaña", "Diseñador", "Última revisión"]
-        tabla_abrible(view.sort_values("Última revisión", ascending=False), "tabla_correccion")
+        view["dias"] = view["fecha"].map(_dias_desde)
+        view = view.sort_values("dias", ascending=False)
+        view["espera"] = view["dias"].map(_semaforo)
+        view = view.drop(columns=["dias"])
+        view.columns = ["Folio", "Cliente", "Campaña", "Diseñador", "Rechazado el", "Espera"]
+        tabla_accionable(view, "corr")
 
     # --- Liberados recientes ---
     lib = ultimas[ultimas["estado"] == ESTADO_LISTO]
@@ -98,7 +124,8 @@ if es_evaluador:
         st.subheader(f"✅ Liberados ({len(lib)})")
         view = lib[["folio", "cliente", "campana", "disenador", "fecha"]].copy()
         view.columns = ["Folio", "Cliente", "Campaña", "Diseñador", "Liberado el"]
-        tabla_abrible(view.sort_values("Liberado el", ascending=False).head(15), "tabla_liberados")
+        st.dataframe(view.sort_values("Liberado el", ascending=False).head(15),
+                     hide_index=True, width="stretch")
 
 else:
     mios = ultimas[ultimas["disenador"] == usuario["nombre"]]
@@ -112,12 +139,14 @@ else:
     if corr.empty:
         st.success("No tienes folios en corrección. 🎉")
     else:
-        st.caption("Haz clic en una fila para abrir tu 1er check y reenviar el folio. "
-                   "Los motivos del rechazo están en el historial del folio y en el PDF.")
+        st.caption("Los motivos del rechazo están en el historial del folio y en el PDF.")
         view = corr[["folio", "cliente", "campana", "fecha"]].copy()
-        view["espera"] = view["fecha"].map(_dias_desde)
-        view.columns = ["Folio", "Cliente", "Campaña", "Rechazado el", "Días en corrección"]
-        tabla_abrible(view.sort_values("Días en corrección", ascending=False), "tabla_mis_correcciones")
+        view["dias"] = view["fecha"].map(_dias_desde)
+        view = view.sort_values("dias", ascending=False)
+        view["espera"] = view["dias"].map(_semaforo)
+        view = view.drop(columns=["dias"])
+        view.columns = ["Folio", "Cliente", "Campaña", "Rechazado el", "Espera"]
+        tabla_accionable(view, "miscorr", boton="Corregir →")
 
     # --- Esperando 2do check ---
     pend = mios[mios["estado"] == ESTADO_PENDIENTE]
@@ -125,7 +154,8 @@ else:
         st.subheader(f"🕓 Esperando 2do check ({len(pend)})")
         view = pend[["folio", "cliente", "campana", "fecha"]].copy()
         view.columns = ["Folio", "Cliente", "Campaña", "Enviado el"]
-        tabla_abrible(view.sort_values("Enviado el", ascending=False), "tabla_mis_pendientes")
+        st.dataframe(view.sort_values("Enviado el", ascending=False),
+                     hide_index=True, width="stretch")
 
     # --- Liberados ---
     lib = mios[mios["estado"] == ESTADO_LISTO]
@@ -133,4 +163,5 @@ else:
         st.subheader(f"✅ Liberados ({len(lib)})")
         view = lib[["folio", "cliente", "campana", "fecha"]].copy()
         view.columns = ["Folio", "Cliente", "Campaña", "Liberado el"]
-        tabla_abrible(view.sort_values("Liberado el", ascending=False).head(15), "tabla_mis_liberados")
+        st.dataframe(view.sort_values("Liberado el", ascending=False).head(15),
+                     hide_index=True, width="stretch")
