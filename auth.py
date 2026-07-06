@@ -100,7 +100,8 @@ def get_usuario():
             key="usuario_actual",
         )
     if not nombre:
-        st.info("👈 Selecciona tu nombre en la barra lateral para comenzar.")
+        st.info("Selecciona tu nombre en la barra lateral para comenzar.",
+                icon=":material/arrow_back:")
         st.stop()
     rol = ROL_EVALUADOR if nombre in EVALUADORES_LOCAL else ROL_DISENADOR
     return {"nombre": nombre, "email": "", "rol": rol}

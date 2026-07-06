@@ -13,18 +13,29 @@ STATUS_NA = "N/A"
 
 STATUS_OPTIONS = [STATUS_CUMPLE, STATUS_AJUSTE, STATUS_NO_CUMPLE, STATUS_NA]
 
-STATUS_ICONS = {
-    STATUS_CUMPLE: "✅",
-    STATUS_AJUSTE: "⚠️",
-    STATUS_NO_CUMPLE: "🛑",
-    STATUS_NA: "➖",
-}
-
 STATUS_REQUIRES_MOTIVO = {STATUS_AJUSTE, STATUS_NO_CUMPLE}
+
+# Color de badge por estatus (sintaxis de markdown de Streamlit
+# :color-badge[texto]); conserva el lenguaje verde/ámbar/rojo sin emojis.
+STATUS_BADGE_COLOR = {
+    STATUS_CUMPLE: "green",
+    STATUS_AJUSTE: "orange",
+    STATUS_NO_CUMPLE: "red",
+    STATUS_NA: "gray",
+}
 
 RESULTADO_LISTO = "Listo para producción"
 RESULTADO_CORRECCION = "Requiere corrección"
 RESULTADO_ENVIADO = "Enviado a 2do check"
+
+
+def badge(texto, color):
+    """Badge de color en markdown de Streamlit."""
+    return f":{color}-badge[{texto}]"
+
+
+def status_badge(status):
+    return badge(status, STATUS_BADGE_COLOR.get(status, "gray"))
 
 # Tipos de revisión: el 1er check lo hace el diseñador que desarrolló el
 # layout (solo se puede guardar "limpio"); el 2do check es la revisión
@@ -36,6 +47,16 @@ TIPO_SEGUNDO = "segundo"
 ESTADO_PENDIENTE = "Pendiente de 2do check"
 ESTADO_CORRECCION = "En corrección"
 ESTADO_LISTO = "Listo para producción"
+
+ESTADO_BADGE_COLOR = {
+    ESTADO_LISTO: "green",
+    ESTADO_CORRECCION: "red",
+    ESTADO_PENDIENTE: "orange",
+}
+
+
+def estado_badge(estado):
+    return badge(estado, ESTADO_BADGE_COLOR.get(estado, "gray"))
 
 from zoneinfo import ZoneInfo
 

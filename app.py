@@ -23,7 +23,8 @@ import streamlit as st
 import auth
 import db
 
-st.set_page_config(page_title="Doble check de preproyectos", page_icon="✅", layout="wide")
+st.set_page_config(page_title="Doble check de preproyectos",
+                   page_icon=":material/checklist:", layout="wide")
 
 db.init_db()
 

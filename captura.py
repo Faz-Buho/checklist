@@ -28,7 +28,6 @@ from catalogo import (
     RESULTADO_CORRECCION,
     RESULTADO_ENVIADO,
     RESULTADO_LISTO,
-    STATUS_ICONS,
     STATUS_OPTIONS,
     STATUS_REQUIRES_MOTIVO,
     STATUS_AJUSTE,
@@ -38,7 +37,9 @@ from catalogo import (
     TIPO_PRIMER,
     TIPO_SEGUNDO,
     TZ_LOCAL,
+    estado_badge,
     estado_folio,
+    status_badge,
 )
 
 # ---------------------------------------------------------------------
@@ -46,13 +47,7 @@ from catalogo import (
 # ---------------------------------------------------------------------
 
 SIN_CAMPANA = "(Sin campaña)"
-NUEVA_CAMPANA = "➕ Nueva campaña..."
-
-ESTADO_ICONS = {
-    ESTADO_PENDIENTE: "🕓",
-    ESTADO_CORRECCION: "🔴",
-    ESTADO_LISTO: "✅",
-}
+NUEVA_CAMPANA = "+ Nueva campaña..."
 
 # Colores (texto, fondo) por estatus para el reporte en PDF
 STATUS_PDF_COLORS = {
@@ -224,7 +219,7 @@ tipo_check = TIPO_SEGUNDO if es_evaluador else TIPO_PRIMER
 # - limpiar_folio: tras guardar se vacía el campo de folio; con eso los
 #   controles del folio dejan de renderizarse y Streamlit descarta su
 #   estado solo (evita dobles guardados y deja lista la página).
-# - folio_abrir: un clic en una tabla de 🏠 Inicio precarga ese folio.
+# - folio_abrir: un clic en una tabla de la página Inicio precarga el folio.
 if st.session_state.pop("limpiar_folio", None):
     st.session_state["folio"] = ""
 if "folio_abrir" in st.session_state:
@@ -271,8 +266,8 @@ with st.sidebar:
 
     prefill = None
     if revisiones_folio:
-        st.info(f"{ESTADO_ICONS.get(estado, '')} Estado: **{estado}** "
-                f"({len(revisiones_folio)} revisión(es) en total).")
+        st.markdown(f"Estado: {estado_badge(estado)} · "
+                    f"{len(revisiones_folio)} revisión(es) en total.")
 
         # Prefill según el rol: cada quien retoma su propio último check,
         # dejando en blanco lo que falló en el último 2do check.
@@ -314,45 +309,48 @@ if folio:
 elif ultimo_guardado:
     ug = ultimo_guardado
     if ug["tipo"] == TIPO_PRIMER:
-        st.success(f"📤 Revisión {ug['revision']} (1er check) guardada — el folio "
-                   f"**{ug['folio']}** quedó **pendiente de 2do check**.")
+        st.success(f"Revisión {ug['revision']} (1er check) guardada — el folio "
+                   f"**{ug['folio']}** quedó **pendiente de 2do check**.",
+                   icon=":material/outgoing_mail:")
     elif ug["resultado"] == RESULTADO_LISTO:
-        st.success(f"✅ Revisión {ug['revision']} del folio **{ug['folio']}** — "
-                   f"Listo para producción")
+        st.success(f"Revisión {ug['revision']} del folio **{ug['folio']}** — "
+                   f"Listo para producción", icon=":material/check_circle:")
     else:
-        st.warning(f"🔴 Revisión {ug['revision']} del folio **{ug['folio']}** — "
+        st.warning(f"Revisión {ug['revision']} del folio **{ug['folio']}** — "
                    f"Requiere corrección. Cuando el diseñador corrija y pase su "
-                   f"1er check, el folio volverá a la cola de pendientes.")
+                   f"1er check, el folio volverá a la cola de pendientes.",
+                   icon=":material/error:")
     if ug.get("conteos"):
         m1, m2, m3, m4 = st.columns(4)
-        m1.metric("✅ Cumple", ug["conteos"][STATUS_CUMPLE])
-        m2.metric("⚠️ Con ajuste", ug["conteos"][STATUS_AJUSTE])
-        m3.metric("🛑 No cumple", ug["conteos"][STATUS_NO_CUMPLE])
-        m4.metric("➖ N/A", ug["conteos"][STATUS_NA])
+        m1.metric("Cumple", ug["conteos"][STATUS_CUMPLE])
+        m2.metric("Con ajuste", ug["conteos"][STATUS_AJUSTE])
+        m3.metric("No cumple", ug["conteos"][STATUS_NO_CUMPLE])
+        m4.metric("N/A", ug["conteos"][STATUS_NA])
     if ug.get("pdf"):
         st.download_button(
             label="Descargar reporte en PDF (para el diseñador)",
             data=ug["pdf"],
             file_name=f"Reporte_{ug['folio']}_rev{ug['revision']}.pdf",
             mime="application/pdf",
+            icon=":material/download:",
         )
-    st.page_link("inicio.py", label="Volver al inicio", icon="🏠")
+    st.page_link("inicio.py", label="Volver al inicio", icon=":material/home:")
     st.stop()
 else:
-    st.info("👈 Escribe el folio en la barra lateral, o ábrelo con un clic "
-            "desde la página de inicio.")
-    st.page_link("inicio.py", label="Ir al inicio", icon="🏠")
+    st.info("Escribe el folio en la barra lateral, o ábrelo con un clic "
+            "desde la página de inicio.", icon=":material/arrow_back:")
+    st.page_link("inicio.py", label="Ir al inicio", icon=":material/home:")
     st.stop()
 
 # --- Encabezado de contexto: qué se está evaluando ---
-st.subheader(f"📄 Folio {folio}")
+st.subheader(f":material/description: Folio {folio}")
 partes = []
 if cliente:
     partes.append(f"**Cliente:** {cliente}")
 if campana_sel not in (SIN_CAMPANA, NUEVA_CAMPANA):
     partes.append(f"**Campaña:** {campana_sel}")
 if estado:
-    partes.append(f"**Estado:** {ESTADO_ICONS.get(estado, '')} {estado}")
+    partes.append(f"Estado: {estado_badge(estado)}")
 else:
     partes.append("**Folio nuevo**")
 partes.append(f"**Esta revisión será la #{len(revisiones_folio) + 1}**")
@@ -366,7 +364,7 @@ if es_evaluador:
 else:
     st.caption(
         "Autorevisión de tu layout con los mismos 18 puntos del 2do check. "
-        "Solo puedes enviarlo cuando todo esté en ✅ Cumple o ➖ N/A — "
+        "Solo puedes enviarlo cuando todo esté en Cumple o N/A — "
         "si algo falla, corrígelo en el arte antes de enviar."
     )
 
@@ -375,8 +373,8 @@ faltan_motivo = []
 fallas_disenador = []
 
 tab_tecnica, tab_operativa = st.tabs([
-    "🎨 Parte técnica (con el arte abierto)",
-    "📋 Parte operativa (contra la orden de trabajo)",
+    ":material/brush: Parte técnica (con el arte abierto)",
+    ":material/fact_check: Parte operativa (contra la orden de trabajo)",
 ])
 tab_por_bloque = {"tecnica": tab_tecnica, "operativa": tab_operativa}
 
@@ -400,7 +398,7 @@ for bloque_id, bloque_titulo in BLOQUES:
                     status = st.segmented_control(
                         item["texto"],
                         STATUS_OPTIONS,
-                        format_func=lambda s: f"{STATUS_ICONS[s]} {s}",
+                        format_func=status_badge,
                         default=default_status if default_status in STATUS_OPTIONS else None,
                         key=f"status_{item_id}_{folio}",
                     )
@@ -409,7 +407,7 @@ for bloque_id, bloque_titulo in BLOQUES:
                     if status in STATUS_REQUIRES_MOTIVO:
                         if es_evaluador:
                             motivo = st.text_area(
-                                f"Motivo / ajuste requerido — {STATUS_ICONS[status]} {status}",
+                                f"Motivo / ajuste requerido — {status_badge(status)}",
                                 key=f"motivo_{item_id}_{folio}",
                                 value=(prefill_item.get("motivo", "")
                                        if prefill_item and prefill_item["status"] == status else ""),
@@ -419,7 +417,8 @@ for bloque_id, bloque_titulo in BLOQUES:
                                 faltan_motivo.append(item["texto"])
                         else:
                             st.warning("Corrige este punto en el arte: debe quedar en "
-                                       "✅ Cumple o ➖ N/A para poder enviar a 2do check.")
+                                       "Cumple o N/A para poder enviar a 2do check.",
+                                       icon=":material/build:")
                             fallas_disenador.append(item["texto"])
 
                     respuestas[item_id] = {"status": status, "motivo": motivo}

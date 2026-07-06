@@ -29,15 +29,16 @@ from catalogo import (
 usuario = st.session_state["usuario"]
 es_evaluador = usuario["rol"] == ROL_EVALUADOR
 
-st.title("🏠 Inicio")
+st.title(":material/home: Inicio")
 st.caption(f"Sesión de **{usuario['nombre']}**"
            + (f" ({usuario['email']})" if usuario["email"] else ""))
-st.page_link("captura.py", label="Capturar un folio nuevo", icon="📝")
+st.page_link("captura.py", label="Capturar un folio nuevo", icon=":material/checklist:")
 
 rev_rows = db.get_revisiones_dashboard("todas")
 
 if not rev_rows:
-    st.info("Aún no hay folios capturados. Empieza con el botón de arriba. 👆")
+    st.info("Aún no hay folios capturados. Empieza con el botón de arriba.",
+            icon=":material/arrow_upward:")
     st.stop()
 
 df = pd.DataFrame(rev_rows)
@@ -68,12 +69,13 @@ def _dias_desde(fecha_str):
 
 def _semaforo(dias):
     if dias <= UMBRAL_VERDE_DIAS:
-        emoji = "🟢"
+        color = "green"
     elif dias <= UMBRAL_AMARILLO_DIAS:
-        emoji = "🟡"
+        color = "orange"
     else:
-        emoji = "🔴"
-    return f"{emoji} hoy" if dias < 1 else f"{emoji} {dias:.1f} d"
+        color = "red"
+    texto = "hoy" if dias < 1 else f"{dias:.1f} d"
+    return f":{color}-badge[{texto}]"
 
 
 def tabla_accionable(df_view, key, boton="Abrir →"):
@@ -94,9 +96,9 @@ def tabla_accionable(df_view, key, boton="Abrir →"):
 if es_evaluador:
     # --- Pendientes de 2do check: la cola de trabajo del evaluador ---
     pend = ultimas[ultimas["estado"] == ESTADO_PENDIENTE]
-    st.subheader(f"📥 Pendientes de 2do check ({len(pend)})")
+    st.subheader(f":material/inbox: Pendientes de 2do check ({len(pend)})")
     if pend.empty:
-        st.success("No hay folios esperando 2do check. 🎉")
+        st.success("No hay folios esperando 2do check.", icon=":material/celebration:")
     else:
         view = pend[["folio", "cliente", "campana", "disenador", "fecha"]].copy()
         view["dias"] = view["fecha"].map(_dias_desde)
@@ -109,7 +111,7 @@ if es_evaluador:
     # --- En corrección: esperando a los diseñadores ---
     corr = ultimas[ultimas["estado"] == ESTADO_CORRECCION]
     if not corr.empty:
-        st.subheader(f"🔴 En corrección con el diseñador ({len(corr)})")
+        st.subheader(f":material/build: En corrección con el diseñador ({len(corr)})")
         view = corr[["folio", "cliente", "campana", "disenador", "fecha"]].copy()
         view["dias"] = view["fecha"].map(_dias_desde)
         view = view.sort_values("dias", ascending=False)
@@ -121,7 +123,7 @@ if es_evaluador:
     # --- Liberados recientes ---
     lib = ultimas[ultimas["estado"] == ESTADO_LISTO]
     if not lib.empty:
-        st.subheader(f"✅ Liberados ({len(lib)})")
+        st.subheader(f":material/check_circle: Liberados ({len(lib)})")
         view = lib[["folio", "cliente", "campana", "disenador", "fecha"]].copy()
         view.columns = ["Folio", "Cliente", "Campaña", "Diseñador", "Liberado el"]
         st.dataframe(view.sort_values("Liberado el", ascending=False).head(15),
@@ -130,14 +132,15 @@ if es_evaluador:
 else:
     mios = ultimas[ultimas["disenador"] == usuario["nombre"]]
     if mios.empty:
-        st.info("Aún no tienes folios. Captura el primero con el botón de arriba. 👆")
+        st.info("Aún no tienes folios. Captura el primero con el botón de arriba.",
+                icon=":material/arrow_upward:")
         st.stop()
 
     # --- Lo que le toca corregir: su cola de trabajo ---
     corr = mios[mios["estado"] == ESTADO_CORRECCION]
-    st.subheader(f"🔴 En corrección — te toca ({len(corr)})")
+    st.subheader(f":material/build: En corrección — te toca ({len(corr)})")
     if corr.empty:
-        st.success("No tienes folios en corrección. 🎉")
+        st.success("No tienes folios en corrección.", icon=":material/celebration:")
     else:
         st.caption("Los motivos del rechazo están en el historial del folio y en el PDF.")
         view = corr[["folio", "cliente", "campana", "fecha"]].copy()
@@ -151,7 +154,7 @@ else:
     # --- Esperando 2do check ---
     pend = mios[mios["estado"] == ESTADO_PENDIENTE]
     if not pend.empty:
-        st.subheader(f"🕓 Esperando 2do check ({len(pend)})")
+        st.subheader(f":material/schedule: Esperando 2do check ({len(pend)})")
         view = pend[["folio", "cliente", "campana", "fecha"]].copy()
         view.columns = ["Folio", "Cliente", "Campaña", "Enviado el"]
         st.dataframe(view.sort_values("Enviado el", ascending=False),
@@ -160,7 +163,7 @@ else:
     # --- Liberados ---
     lib = mios[mios["estado"] == ESTADO_LISTO]
     if not lib.empty:
-        st.subheader(f"✅ Liberados ({len(lib)})")
+        st.subheader(f":material/check_circle: Liberados ({len(lib)})")
         view = lib[["folio", "cliente", "campana", "fecha"]].copy()
         view.columns = ["Folio", "Cliente", "Campaña", "Liberado el"]
         st.dataframe(view.sort_values("Liberado el", ascending=False).head(15),
