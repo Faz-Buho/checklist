@@ -33,8 +33,62 @@ if not eventos:
 
 df = pd.DataFrame(eventos)
 df["dia"] = df["fecha"].str[:10]
-hoy = datetime.now(TZ_LOCAL).strftime("%Y-%m-%d")
+ahora = datetime.now(TZ_LOCAL).replace(tzinfo=None)
+hoy = ahora.strftime("%Y-%m-%d")
 hoy_df = df[df["dia"] == hoy]
+
+# --- Usuarios conectados (presencia por actividad reciente) ---
+UMBRAL_EN_LINEA_MIN = 10
+
+
+def _hace(last_seen):
+    try:
+        dt = datetime.strptime(last_seen, "%Y-%m-%d %H:%M:%S")
+    except (ValueError, TypeError):
+        return None
+    return (ahora - dt).total_seconds() / 60
+
+
+presencia = db.get_presencia()
+en_linea = [p for p in presencia
+            if (_hace(p["last_seen"]) or 1e9) < UMBRAL_EN_LINEA_MIN]
+
+col_t, col_r = st.columns([4, 1], vertical_alignment="bottom")
+col_t.subheader(f":material/group: Usuarios conectados　:green-badge[{len(en_linea)} en línea]")
+if col_r.button("Actualizar", icon=":material/refresh:", width="stretch"):
+    st.rerun()
+
+if not presencia:
+    st.caption("Aún no hay actividad registrada.")
+else:
+    filas = []
+    for p in presencia:
+        mins = _hace(p["last_seen"])
+        if mins is None:
+            estado = "—"
+        elif mins < UMBRAL_EN_LINEA_MIN:
+            estado = "En línea"
+        elif mins < 60:
+            estado = f"hace {int(mins)} min"
+        elif mins < 1440:
+            estado = f"hace {int(mins // 60)} h"
+        else:
+            estado = f"hace {int(mins // 1440)} d"
+        filas.append({"Usuario": p["usuario"], "Rol": p["rol"],
+                      "Estado": estado, "Última actividad": p["last_seen"]})
+    pres_df = pd.DataFrame(filas)
+
+    def _color_en_linea(col):
+        return ["background-color: #dcfce7; color: #166534; font-weight: 600"
+                if v == "En línea" else "" for v in col]
+
+    st.dataframe(pres_df.style.apply(_color_en_linea, subset=["Estado"]),
+                 hide_index=True, width="stretch")
+st.caption(f"«En línea» = actividad en los últimos {UMBRAL_EN_LINEA_MIN} min. "
+           "Streamlit no puede detectar el cierre de sesión, así que se usa "
+           "la actividad reciente como aproximación.")
+
+st.divider()
 
 # --- Resumen ---
 m1, m2, m3, m4 = st.columns(4)

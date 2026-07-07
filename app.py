@@ -18,6 +18,8 @@ Identidad y roles: ver auth.py (login de Google restringido por dominio
 cuando hay sección [auth] en secrets; selector de nombre si no).
 """
 
+import time
+
 import streamlit as st
 
 import auth
@@ -30,12 +32,15 @@ db.init_db()
 
 usuario = auth.get_usuario()
 
-# Registrar el inicio de sesión una sola vez por sesión (para la bitácora
-# de auditoría). El "logout" no es capturable en Streamlit; se usa la
-# última actividad como aproximación.
+# Auditoría: registrar el inicio de sesión una sola vez por sesión, y un
+# "latido" de presencia (máx. una escritura cada 30 s) para aproximar
+# quién está conectado. El "logout" no es capturable en Streamlit.
 if not st.session_state.get("_login_registrado"):
     db.registrar_evento("Inicio de sesión", usuario)
     st.session_state["_login_registrado"] = True
+if time.time() - st.session_state.get("_presencia_ts", 0) > 30:
+    db.registrar_presencia(usuario)
+    st.session_state["_presencia_ts"] = time.time()
 
 # Interruptor de vista para admins: permite ver la app como evaluador o
 # como diseñador sin cambiar de cuenta (para probar ambos flujos).

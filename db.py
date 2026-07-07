@@ -126,6 +126,12 @@ def init_db():
             folio TEXT,
             detalle TEXT
         )""",
+        """CREATE TABLE IF NOT EXISTS presencia (
+            usuario TEXT PRIMARY KEY,
+            email TEXT,
+            rol TEXT,
+            last_seen TEXT NOT NULL
+        )""",
         "CREATE INDEX IF NOT EXISTS idx_revisiones_folio ON revisiones(folio_id)",
         "CREATE INDEX IF NOT EXISTS idx_respuestas_revision ON respuestas(revision_id)",
         "CREATE INDEX IF NOT EXISTS idx_folios_campana ON folios(campana_id)",
@@ -424,5 +430,45 @@ def get_eventos(limite=2000):
         return _fetchall(conn,
                          "SELECT fecha, usuario, email, rol, accion, folio, detalle "
                          "FROM eventos ORDER BY id DESC LIMIT ?", (limite,))
+    finally:
+        conn.close()
+
+
+def registrar_presencia(usuario):
+    """Actualiza 'última vez visto' del usuario (latido de presencia).
+    Best-effort. Sirve para aproximar 'quién está conectado' — Streamlit
+    no tiene sesión persistente ni evento de cierre."""
+    try:
+        nombre = usuario.get("nombre", "")
+        if not nombre:
+            return
+        params = (nombre, usuario.get("email", ""), usuario.get("rol", ""), _ahora())
+        conn = _connect()
+        try:
+            if _is_postgres():
+                sql = ("INSERT INTO presencia (usuario, email, rol, last_seen) "
+                       "VALUES (?, ?, ?, ?) ON CONFLICT (usuario) DO UPDATE SET "
+                       "email = EXCLUDED.email, rol = EXCLUDED.rol, last_seen = EXCLUDED.last_seen")
+                with conn.cursor() as cur:
+                    cur.execute(_sql(sql), params)
+                conn.commit()
+            else:
+                sql = ("INSERT INTO presencia (usuario, email, rol, last_seen) "
+                       "VALUES (?, ?, ?, ?) ON CONFLICT(usuario) DO UPDATE SET "
+                       "email = excluded.email, rol = excluded.rol, last_seen = excluded.last_seen")
+                conn.execute(sql, params)
+        finally:
+            conn.close()
+    except Exception:
+        pass
+
+
+def get_presencia():
+    """Presencia de todos los usuarios, del más reciente al más antiguo."""
+    conn = _connect()
+    try:
+        return _fetchall(conn,
+                         "SELECT usuario, email, rol, last_seen FROM presencia "
+                         "ORDER BY last_seen DESC")
     finally:
         conn.close()
