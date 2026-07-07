@@ -92,13 +92,19 @@ def get_usuario():
 
     # --- Modo sin login: selector de nombre ---
     with st.sidebar:
-        nombre = st.selectbox(
+        elegido = st.selectbox(
             "¿Quién eres? *",
             EVALUADORES_LOCAL + DISENADORES_LOCAL,
             index=None,
             placeholder="Selecciona tu nombre",
             key="usuario_actual",
         )
+    # Persistir el nombre: al navegar entre páginas (p.ej. clic en una
+    # fila que abre Captura), el selectbox puede regresar None por un
+    # instante; el valor guardado mantiene la sesión estable.
+    if elegido:
+        st.session_state["nombre_local"] = elegido
+    nombre = st.session_state.get("nombre_local")
     if not nombre:
         st.info("Selecciona tu nombre en la barra lateral para comenzar.",
                 icon=":material/arrow_back:")

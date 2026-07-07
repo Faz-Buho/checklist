@@ -14,7 +14,8 @@ from datetime import datetime
 
 import pandas as pd
 import streamlit as st
-from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode, JsCode
+from itables import JavascriptFunction
+from itables.streamlit import interactive_table
 
 import db
 from auth import ROL_EVALUADOR
@@ -62,6 +63,21 @@ ultimas["disenador"] = ultimas["folio"].map(disenador_por_folio)
 UMBRAL_VERDE_DIAS = 1
 UMBRAL_AMARILLO_DIAS = 3
 
+# Colorea la celda "Espera" como pastilla (mismo lenguaje de badges de la
+# app). createdCell corre en el navegador al construir cada celda.
+_ESPERA_CELL = JavascriptFunction("""
+function(td, cellData){
+  if(cellData==null || cellData===''){ return; }
+  let d = cellData==='hoy' ? 0 : parseFloat(cellData);
+  let bg,fg;
+  if(d<=1){bg='#dcfce7';fg='#166534';}
+  else if(d<=3){bg='#fef9c3';fg='#854d0e';}
+  else {bg='#fee2e2';fg='#991b1b';}
+  td.innerHTML = '<span style="background:'+bg+';color:'+fg+';font-weight:600;'
+    +'padding:2px 10px;border-radius:9999px;font-size:12px;white-space:nowrap;">'+cellData+'</span>';
+}""")
+
+
 def _dias_desde(fecha_str):
     ahora = datetime.now(TZ_LOCAL).replace(tzinfo=None)
     return round((ahora - datetime.strptime(fecha_str, "%Y-%m-%d %H:%M")).total_seconds() / 86400, 1)
@@ -71,79 +87,31 @@ def _espera_texto(dias):
     return "hoy" if dias < 1 else f"{dias:.1f} d"
 
 
-# "Espera" como pastilla de color centrada (mismo lenguaje de badges del
-# resto de la app), no como fondo de celda; se ve intencional y alineado.
-_ESPERA_RENDERER = JsCode("""
-class R {
-  init(p){
-    this.e=document.createElement('div');
-    this.e.style.cssText='display:flex;align-items:center;height:100%;';
-    if(p.value==null){ return; }
-    let d = p.value==='hoy' ? 0 : parseFloat(p.value);
-    let bg,fg;
-    if(d<=1){bg='#dcfce7';fg='#166534';}
-    else if(d<=3){bg='#fef9c3';fg='#854d0e';}
-    else {bg='#fee2e2';fg='#991b1b';}
-    const s=document.createElement('span');
-    s.innerText=p.value;
-    s.style.cssText='background:'+bg+';color:'+fg+';font-weight:600;'
-      +'padding:2px 10px;border-radius:9999px;font-size:12px;white-space:nowrap;';
-    this.e.appendChild(s);
-  }
-  getGui(){return this.e;}
-}""")
-
-
-def _boton_renderer(etiqueta):
-    """Botón por fila, centrado, que al hacer clic selecciona la fila
-    (AgGrid la devuelve a Python y ahí abrimos el folio). Se usa .replace
-    (no el operador %) porque el CSS lleva 'height:100%'."""
-    js = """
-    class R {
-      init(p){
-        this.e=document.createElement('div');
-        this.e.style.cssText='display:flex;align-items:center;justify-content:center;height:100%;';
-        const b=document.createElement('button');
-        b.innerText='__LABEL__';
-        b.style.cssText='background:#ff4b4b;color:#fff;border:none;border-radius:6px;'
-          +'padding:4px 14px;cursor:pointer;font-weight:600;font-size:13px;';
-        b.addEventListener('click',e=>{e.stopPropagation(); p.node.setSelected(true);});
-        this.e.appendChild(b);}
-      getGui(){return this.e;} }"""
-    return JsCode(js.replace("__LABEL__", etiqueta))
-
-
-def tabla_folios(df_view, key, accion=None):
-    """Grid (AgGrid) consistente: cuadrícula limpia, columna 'Espera'
-    coloreada y —si 'accion' se indica— un botón por fila que abre ese
-    folio en Captura. El guardia evita reabrir en bucle al volver."""
-    df = df_view.copy()
-    if accion:
-        df["Acción"] = ""
-    fila_px = 36
-    gb = GridOptionsBuilder.from_dataframe(df)
-    gb.configure_default_column(sortable=True, filterable=False, resizable=True)
-    gb.configure_grid_options(suppressCellFocus=True, rowHeight=fila_px, headerHeight=fila_px)
-    gb.configure_selection("single", use_checkbox=False)
+def tabla_folios(df_view, key):
+    """Tabla itables (DataTables) consistente: cuadrícula limpia con
+    'Espera' como pastilla de color; clic en cualquier fila abre ese folio
+    en Captura. El guardia evita reabrir en bucle al volver."""
+    df = df_view.reset_index(drop=True)
+    col_defs = []
     if "Espera" in df.columns:
-        gb.configure_column("Espera", cellRenderer=_ESPERA_RENDERER, width=100)
-    if accion:
-        gb.configure_column("Acción", header_name="", cellRenderer=_boton_renderer(accion),
-                            width=130, pinned="right", sortable=False)
-    # Altura ajustada al contenido (encabezado + filas), sin espacio muerto.
-    altura = fila_px * (len(df) + 1) + 4
-    resp = AgGrid(df, gridOptions=gb.build(), allow_unsafe_jscode=True,
-                  update_mode=GridUpdateMode.SELECTION_CHANGED, theme="streamlit",
-                  fit_columns_on_grid_load=True, height=altura, key=key)
-    if accion:
-        sr = resp.selected_rows
-        if sr is not None and len(sr):
-            folio = sr.iloc[0]["Folio"] if hasattr(sr, "iloc") else sr[0]["Folio"]
-            if st.session_state.get(f"_sel_{key}") != folio:
-                st.session_state[f"_sel_{key}"] = folio
-                st.session_state["folio_abrir"] = folio
-                st.switch_page("captura.py")
+        col_defs.append({"targets": list(df.columns).index("Espera"),
+                         "createdCell": _ESPERA_CELL})
+    res = interactive_table(
+        df, key=key, select="single",
+        showIndex=False, paging=False, searching=False, info=False,
+        columnDefs=col_defs, classes="display compact",
+        style="width:100%; margin:0",
+    )
+    filas = getattr(res, "selected_rows", None) or []
+    if filas:
+        folio = df.iloc[filas[0]]["Folio"]
+        if st.session_state.get(f"_sel_{key}") != folio:
+            st.session_state[f"_sel_{key}"] = folio
+            st.session_state["folio_abrir"] = folio
+            st.switch_page("captura.py")
 
+
+st.caption("Haz clic en una fila para abrir ese folio.")
 
 if es_evaluador:
     # --- Pendientes de 2do check: la cola de trabajo del evaluador ---
@@ -158,7 +126,7 @@ if es_evaluador:
         view["espera"] = view["dias"].map(_espera_texto)
         view = view.drop(columns=["dias"])
         view.columns = ["Folio", "Cliente", "Campaña", "Diseñador", "Enviado el", "Espera"]
-        tabla_folios(view, "pend", accion="Revisar →")
+        tabla_folios(view, "pend")
 
     # --- En corrección: esperando a los diseñadores ---
     corr = ultimas[ultimas["estado"] == ESTADO_CORRECCION]
@@ -170,7 +138,7 @@ if es_evaluador:
         view["espera"] = view["dias"].map(_espera_texto)
         view = view.drop(columns=["dias"])
         view.columns = ["Folio", "Cliente", "Campaña", "Diseñador", "Rechazado el", "Espera"]
-        tabla_folios(view, "corr", accion="Abrir →")
+        tabla_folios(view, "corr")
 
     # --- Liberados recientes ---
     lib = ultimas[ultimas["estado"] == ESTADO_LISTO]
@@ -200,7 +168,7 @@ else:
         view["espera"] = view["dias"].map(_espera_texto)
         view = view.drop(columns=["dias"])
         view.columns = ["Folio", "Cliente", "Campaña", "Rechazado el", "Espera"]
-        tabla_folios(view, "miscorr", accion="Corregir →")
+        tabla_folios(view, "miscorr")
 
     # --- Esperando 2do check ---
     pend = mios[mios["estado"] == ESTADO_PENDIENTE]
