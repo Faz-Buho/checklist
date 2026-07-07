@@ -62,16 +62,6 @@ ultimas["disenador"] = ultimas["folio"].map(disenador_por_folio)
 UMBRAL_VERDE_DIAS = 1
 UMBRAL_AMARILLO_DIAS = 3
 
-# Colorea la celda "Espera" según el umbral (mismo lenguaje de color de
-# toda la app). Se ejecuta en el navegador dentro del grid.
-_ESTILO_ESPERA = JsCode("""
-function(p){ if(p.value==null) return {};
-  let d = p.value==='hoy' ? 0 : parseFloat(p.value);
-  if(d<=1) return {'backgroundColor':'#dcfce7','color':'#166534','fontWeight':'600'};
-  if(d<=3) return {'backgroundColor':'#fef9c3','color':'#854d0e','fontWeight':'600'};
-  return {'backgroundColor':'#fee2e2','color':'#991b1b','fontWeight':'600'}; }""")
-
-
 def _dias_desde(fecha_str):
     ahora = datetime.now(TZ_LOCAL).replace(tzinfo=None)
     return round((ahora - datetime.strptime(fecha_str, "%Y-%m-%d %H:%M")).total_seconds() / 86400, 1)
@@ -81,19 +71,46 @@ def _espera_texto(dias):
     return "hoy" if dias < 1 else f"{dias:.1f} d"
 
 
+# "Espera" como pastilla de color centrada (mismo lenguaje de badges del
+# resto de la app), no como fondo de celda; se ve intencional y alineado.
+_ESPERA_RENDERER = JsCode("""
+class R {
+  init(p){
+    this.e=document.createElement('div');
+    this.e.style.cssText='display:flex;align-items:center;height:100%;';
+    if(p.value==null){ return; }
+    let d = p.value==='hoy' ? 0 : parseFloat(p.value);
+    let bg,fg;
+    if(d<=1){bg='#dcfce7';fg='#166534';}
+    else if(d<=3){bg='#fef9c3';fg='#854d0e';}
+    else {bg='#fee2e2';fg='#991b1b';}
+    const s=document.createElement('span');
+    s.innerText=p.value;
+    s.style.cssText='background:'+bg+';color:'+fg+';font-weight:600;'
+      +'padding:2px 10px;border-radius:9999px;font-size:12px;white-space:nowrap;';
+    this.e.appendChild(s);
+  }
+  getGui(){return this.e;}
+}""")
+
+
 def _boton_renderer(etiqueta):
-    """Botón por fila que, al hacer clic, selecciona la fila (AgGrid la
-    devuelve a Python y ahí abrimos el folio)."""
-    return JsCode("""
+    """Botón por fila, centrado, que al hacer clic selecciona la fila
+    (AgGrid la devuelve a Python y ahí abrimos el folio). Se usa .replace
+    (no el operador %) porque el CSS lleva 'height:100%'."""
+    js = """
     class R {
-      init(p){ this.e=document.createElement('span');
+      init(p){
+        this.e=document.createElement('div');
+        this.e.style.cssText='display:flex;align-items:center;justify-content:center;height:100%;';
         const b=document.createElement('button');
-        b.innerText=%r;
+        b.innerText='__LABEL__';
         b.style.cssText='background:#ff4b4b;color:#fff;border:none;border-radius:6px;'
-          +'padding:3px 12px;cursor:pointer;font-weight:600;font-size:13px;';
+          +'padding:4px 14px;cursor:pointer;font-weight:600;font-size:13px;';
         b.addEventListener('click',e=>{e.stopPropagation(); p.node.setSelected(true);});
         this.e.appendChild(b);}
-      getGui(){return this.e;} }""" % etiqueta)
+      getGui(){return this.e;} }"""
+    return JsCode(js.replace("__LABEL__", etiqueta))
 
 
 def tabla_folios(df_view, key, accion=None):
@@ -109,7 +126,7 @@ def tabla_folios(df_view, key, accion=None):
     gb.configure_grid_options(suppressCellFocus=True, rowHeight=fila_px, headerHeight=fila_px)
     gb.configure_selection("single", use_checkbox=False)
     if "Espera" in df.columns:
-        gb.configure_column("Espera", cellStyle=_ESTILO_ESPERA, width=95)
+        gb.configure_column("Espera", cellRenderer=_ESPERA_RENDERER, width=100)
     if accion:
         gb.configure_column("Acción", header_name="", cellRenderer=_boton_renderer(accion),
                             width=130, pinned="right", sortable=False)
