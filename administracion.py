@@ -90,6 +90,25 @@ st.caption(f"«En línea» = actividad en los últimos {UMBRAL_EN_LINEA_MIN} min
 
 st.divider()
 
+# --- Accesos: quién ha iniciado sesión alguna vez ---
+st.subheader(":material/login: Inicios de sesión")
+logins = df[df["accion"] == "Inicio de sesión"]
+if logins.empty:
+    st.caption("Aún no hay inicios de sesión registrados.")
+else:
+    accesos = (logins.groupby("usuario")
+               .agg(Rol=("rol", "last"),
+                    **{"Primer acceso": ("fecha", "min"),
+                       "Último acceso": ("fecha", "max"),
+                       "Accesos": ("fecha", "count")})
+               .reset_index()
+               .rename(columns={"usuario": "Usuario"})
+               .sort_values("Último acceso", ascending=False))
+    st.caption(f"{len(accesos)} persona(s) han iniciado sesión.")
+    st.dataframe(accesos, hide_index=True, width="stretch")
+
+st.divider()
+
 # --- Resumen ---
 m1, m2, m3, m4 = st.columns(4)
 m1.metric("Eventos (total)", len(df))
