@@ -141,9 +141,9 @@ if es_evaluador:
     lib = ultimas[ultimas["estado"] == ESTADO_LISTO]
     if not lib.empty:
         st.divider()
-        st.subheader(f":material/check_circle: Liberados ({len(lib)})")
+        st.subheader(f":material/verified: Certificados ({len(lib)})")
         view = lib[["folio", "cliente", "campana", "disenador", "fecha"]].copy()
-        view.columns = ["Folio", "Cliente", "Campaña", "Diseñador", "Liberado el"]
+        view.columns = ["Folio", "Cliente", "Campaña", "Diseñador", "Certificado el"]
         tabla_liberados(view)
 
 else:
@@ -177,7 +177,7 @@ else:
     lib = mios[mios["estado"] == ESTADO_LISTO]
     if not lib.empty:
         st.divider()
-        st.subheader(f":material/check_circle: Liberados ({len(lib)})")
+        st.subheader(f":material/verified: Certificados ({len(lib)})")
         view = lib[["folio", "cliente", "campana", "fecha"]].copy()
-        view.columns = ["Folio", "Cliente", "Campaña", "Liberado el"]
+        view.columns = ["Folio", "Cliente", "Campaña", "Certificado el"]
         tabla_liberados(view)
