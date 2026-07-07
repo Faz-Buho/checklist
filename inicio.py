@@ -56,8 +56,6 @@ disenador_por_folio = (primeros.loc[primeros.groupby("folio")["revision"].idxmax
                        .set_index("folio")["evaluador"] if not primeros.empty else {})
 ultimas["disenador"] = ultimas["folio"].map(disenador_por_folio)
 
-CAPTION_ABRIR = "Haz clic en una fila para abrir ese folio."
-
 
 # Semáforo de espera: verde hasta 1 día, ámbar hasta 3, rojo después.
 UMBRAL_VERDE_DIAS = 1
@@ -92,21 +90,22 @@ def _estilo_espera(col):
     return estilos
 
 
-def tabla_folios(df_view, key):
-    """Tabla consistente (grid): seleccionar una fila abre ese folio en
-    Captura. Colorea la columna 'Espera' si existe. El guardia evita que,
-    al volver a Inicio con la fila aún seleccionada, se reabra en bucle."""
+def tabla_folios(df_view, key, accion=None):
+    """Tabla consistente (grid limpio, sin casilla de selección). Colorea
+    la columna 'Espera' si existe. Si 'accion' se indica (etiqueta del
+    botón), muestra debajo un selector de folio + botón que abre ese folio
+    en Captura — más explícito que la selección de fila."""
     styler = df_view.style
     if "Espera" in df_view.columns:
         styler = styler.apply(_estilo_espera, subset=["Espera"])
-    ev = st.dataframe(styler, hide_index=True, width="stretch",
-                      on_select="rerun", selection_mode="single-row", key=key)
-    if ev.selection.rows:
-        idx = ev.selection.rows[0]
-        folio = df_view.iloc[idx]["Folio"]
-        if st.session_state.get(f"_sel_{key}") != (folio, idx):
-            st.session_state[f"_sel_{key}"] = (folio, idx)
-            st.session_state["folio_abrir"] = folio
+    st.dataframe(styler, hide_index=True, width="stretch")
+    if accion:
+        folios = list(df_view["Folio"])
+        col_sel, col_btn = st.columns([3, 1])
+        sel = col_sel.selectbox("Folio", folios, key=f"sel_{key}",
+                                label_visibility="collapsed")
+        if col_btn.button(accion, key=f"btn_{key}", type="primary", width="stretch"):
+            st.session_state["folio_abrir"] = sel
             st.switch_page("captura.py")
 
 
@@ -123,8 +122,7 @@ if es_evaluador:
         view["espera"] = view["dias"].map(_espera_texto)
         view = view.drop(columns=["dias"])
         view.columns = ["Folio", "Cliente", "Campaña", "Diseñador", "Enviado el", "Espera"]
-        st.caption(CAPTION_ABRIR)
-        tabla_folios(view, "pend")
+        tabla_folios(view, "pend", accion="Revisar →")
 
     # --- En corrección: esperando a los diseñadores ---
     corr = ultimas[ultimas["estado"] == ESTADO_CORRECCION]
@@ -136,8 +134,7 @@ if es_evaluador:
         view["espera"] = view["dias"].map(_espera_texto)
         view = view.drop(columns=["dias"])
         view.columns = ["Folio", "Cliente", "Campaña", "Diseñador", "Rechazado el", "Espera"]
-        st.caption(CAPTION_ABRIR)
-        tabla_folios(view, "corr")
+        tabla_folios(view, "corr", accion="Abrir →")
 
     # --- Liberados recientes ---
     lib = ultimas[ultimas["estado"] == ESTADO_LISTO]
@@ -145,7 +142,6 @@ if es_evaluador:
         st.subheader(f":material/check_circle: Liberados ({len(lib)})")
         view = lib[["folio", "cliente", "campana", "disenador", "fecha"]].copy()
         view.columns = ["Folio", "Cliente", "Campaña", "Diseñador", "Liberado el"]
-        st.caption(CAPTION_ABRIR)
         tabla_folios(view.sort_values("Liberado el", ascending=False).head(15), "lib")
 
 else:
@@ -161,15 +157,14 @@ else:
     if corr.empty:
         st.success("No tienes folios en corrección.", icon=":material/celebration:")
     else:
-        st.caption("Los motivos del rechazo están en el historial del folio y en el PDF. "
-                   + CAPTION_ABRIR)
+        st.caption("Los motivos del rechazo están en el historial del folio y en el PDF.")
         view = corr[["folio", "cliente", "campana", "fecha"]].copy()
         view["dias"] = view["fecha"].map(_dias_desde)
         view = view.sort_values("dias", ascending=False)
         view["espera"] = view["dias"].map(_espera_texto)
         view = view.drop(columns=["dias"])
         view.columns = ["Folio", "Cliente", "Campaña", "Rechazado el", "Espera"]
-        tabla_folios(view, "miscorr")
+        tabla_folios(view, "miscorr", accion="Corregir →")
 
     # --- Esperando 2do check ---
     pend = mios[mios["estado"] == ESTADO_PENDIENTE]
@@ -177,7 +172,6 @@ else:
         st.subheader(f":material/schedule: Esperando 2do check ({len(pend)})")
         view = pend[["folio", "cliente", "campana", "fecha"]].copy()
         view.columns = ["Folio", "Cliente", "Campaña", "Enviado el"]
-        st.caption(CAPTION_ABRIR)
         tabla_folios(view.sort_values("Enviado el", ascending=False), "misesp")
 
     # --- Liberados ---
@@ -186,5 +180,4 @@ else:
         st.subheader(f":material/check_circle: Liberados ({len(lib)})")
         view = lib[["folio", "cliente", "campana", "fecha"]].copy()
         view.columns = ["Folio", "Cliente", "Campaña", "Liberado el"]
-        st.caption(CAPTION_ABRIR)
         tabla_folios(view.sort_values("Liberado el", ascending=False).head(15), "mislib")
