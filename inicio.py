@@ -77,31 +77,19 @@ def _badge_espera(dias):
 
 def tarjeta(row, boton, tipo="primary", fecha_label="Enviado",
             con_espera=True, mostrar_disenador=True, validado_por=None):
-    """Tarjeta plegable: colapsada muestra folio + campaña + urgencia y el
-    botón que abre el folio; el chevron la despliega para ver los detalles
-    (cliente, diseñador, validado por, check, fecha)."""
+    """Tarjeta plegable con st.expander (colapsa al instante en el
+    navegador, sin recargar): el encabezado muestra folio + campaña +
+    urgencia; al desplegar, los detalles. El botón que abre el folio va al
+    lado, siempre visible."""
     folio = row["folio"]
-    exp_key = f"exp_{folio}"
-    abierto = st.session_state.get(exp_key, False)
-    with st.container(border=True):
-        col_ch, col_info, col_btn = st.columns([0.5, 5, 1.3], vertical_alignment="center")
-        with col_ch:
-            icono = ":material/expand_more:" if abierto else ":material/chevron_right:"
-            if st.button("", icon=icono, key=f"tog_{folio}", type="tertiary"):
-                st.session_state[exp_key] = not abierto
-                st.rerun()
-        with col_info:
-            enc = f"**Folio {folio}**"
-            if row.get("campana"):
-                enc += f"  ·  {row['campana']}"
-            if con_espera:
-                enc += " &nbsp; " + _badge_espera(_dias_desde(row["fecha"]))
-            st.markdown(enc)
-        with col_btn:
-            if st.button(boton, key=f"open_{folio}", type=tipo, width="stretch"):
-                st.session_state["folio_abrir"] = folio
-                st.switch_page("captura.py")
-        if abierto:
+    col_exp, col_btn = st.columns([5, 1.3], vertical_alignment="center")
+    with col_exp:
+        label = f"**Folio {folio}**"
+        if row.get("campana"):
+            label += f"　·　{row['campana']}"
+        if con_espera:
+            label += "　" + _badge_espera(_dias_desde(row["fecha"]))
+        with st.expander(label):
             detalle = [f"Cliente: {row['cliente'] or '—'}"]
             if mostrar_disenador and row.get("disenador"):
                 detalle.append(f"Diseñador: {row['disenador']}")
@@ -109,7 +97,11 @@ def tarjeta(row, boton, tipo="primary", fecha_label="Enviado",
                 detalle.append(f"Validado por: {validado_por}")
             detalle.append(f"Check No.: {int(row['revision'])}")
             detalle.append(f"{fecha_label}: {row['fecha']}")
-            st.caption("　·　".join(detalle))
+            st.markdown("　·　".join(detalle))
+    with col_btn:
+        if st.button(boton, key=f"open_{folio}", type=tipo, width="stretch"):
+            st.session_state["folio_abrir"] = folio
+            st.switch_page("captura.py")
 
 
 def tabla_liberados(view):
