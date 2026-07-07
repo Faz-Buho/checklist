@@ -1,21 +1,20 @@
 """
 Página de inicio: la bandeja de trabajo, distinta por rol.
 
-- Evaluador: pendientes de 2do check (su cola de trabajo), folios en
-  corrección (esperando a diseñadores) y liberados recientes.
+- Evaluador: pendientes de 2do check (su cola), folios en corrección
+  (esperando a diseñadores) y liberados recientes.
 - Diseñador: SUS folios en corrección (lo que le toca corregir),
   esperando 2do check y liberados.
 
-Clic en una fila abre el folio en la página de captura. Se ejecuta vía
-st.navigation desde app.py.
+Cada folio es una TARJETA (no una fila de tabla): la bandeja es una cola
+de trabajo, no una hoja de cálculo. Cada tarjeta trae un botón nativo que
+abre ese folio en Captura. Se ejecuta vía st.navigation desde app.py.
 """
 
 from datetime import datetime
 
 import pandas as pd
 import streamlit as st
-from itables import JavascriptFunction
-from itables.streamlit import interactive_table
 
 import db
 from auth import ROL_EVALUADOR
@@ -30,6 +29,10 @@ from catalogo import (
 
 usuario = st.session_state["usuario"]
 es_evaluador = usuario["rol"] == ROL_EVALUADOR
+
+# Semáforo de espera: verde hasta 1 día, ámbar hasta 3, rojo después.
+UMBRAL_VERDE_DIAS = 1
+UMBRAL_AMARILLO_DIAS = 3
 
 st.title(":material/home: Inicio")
 st.caption(f"Sesión de **{usuario['nombre']}**"
@@ -59,59 +62,46 @@ disenador_por_folio = (primeros.loc[primeros.groupby("folio")["revision"].idxmax
 ultimas["disenador"] = ultimas["folio"].map(disenador_por_folio)
 
 
-# Semáforo de espera: verde hasta 1 día, ámbar hasta 3, rojo después.
-UMBRAL_VERDE_DIAS = 1
-UMBRAL_AMARILLO_DIAS = 3
-
-# Colorea la celda "Espera" como pastilla (mismo lenguaje de badges de la
-# app). createdCell corre en el navegador al construir cada celda.
-_ESPERA_CELL = JavascriptFunction("""
-function(td, cellData){
-  if(cellData==null || cellData===''){ return; }
-  let d = cellData==='hoy' ? 0 : parseFloat(cellData);
-  let bg,fg;
-  if(d<=1){bg='#dcfce7';fg='#166534';}
-  else if(d<=3){bg='#fef9c3';fg='#854d0e';}
-  else {bg='#fee2e2';fg='#991b1b';}
-  td.innerHTML = '<span style="background:'+bg+';color:'+fg+';font-weight:600;'
-    +'padding:2px 10px;border-radius:9999px;font-size:12px;white-space:nowrap;">'+cellData+'</span>';
-}""")
-
-
 def _dias_desde(fecha_str):
     ahora = datetime.now(TZ_LOCAL).replace(tzinfo=None)
     return round((ahora - datetime.strptime(fecha_str, "%Y-%m-%d %H:%M")).total_seconds() / 86400, 1)
 
 
-def _espera_texto(dias):
-    return "hoy" if dias < 1 else f"{dias:.1f} d"
+def _badge_espera(dias):
+    """Badge de urgencia (color) con el tiempo esperando."""
+    texto = "hoy" if dias < 1 else f"{dias:.1f} d"
+    color = ("green" if dias <= UMBRAL_VERDE_DIAS
+             else "orange" if dias <= UMBRAL_AMARILLO_DIAS else "red")
+    return f":{color}-badge[{texto}]"
 
 
-def tabla_folios(df_view, key):
-    """Tabla itables (DataTables) consistente: cuadrícula limpia con
-    'Espera' como pastilla de color; clic en cualquier fila abre ese folio
-    en Captura. El guardia evita reabrir en bucle al volver."""
-    df = df_view.reset_index(drop=True)
-    col_defs = []
-    if "Espera" in df.columns:
-        col_defs.append({"targets": list(df.columns).index("Espera"),
-                         "createdCell": _ESPERA_CELL})
-    res = interactive_table(
-        df, key=key, select="single",
-        showIndex=False, paging=False, searching=False, info=False,
-        columnDefs=col_defs, classes="display compact",
-        style="width:100%; margin:0",
-    )
-    filas = getattr(res, "selected_rows", None) or []
-    if filas:
-        folio = df.iloc[filas[0]]["Folio"]
-        if st.session_state.get(f"_sel_{key}") != folio:
-            st.session_state[f"_sel_{key}"] = folio
-            st.session_state["folio_abrir"] = folio
-            st.switch_page("captura.py")
+def tarjeta(row, boton, tipo="primary", fecha_label="Enviado",
+            con_espera=True, mostrar_disenador=True):
+    """Una tarjeta de folio con su info y un botón que lo abre en Captura."""
+    folio = row["folio"]
+    with st.container(border=True):
+        col_info, col_btn = st.columns([5, 1], vertical_alignment="center")
+        with col_info:
+            enc = f"**Folio {folio}**  ·  {row['cliente'] or '—'}"
+            if row.get("campana"):
+                enc += f"  ·  {row['campana']}"
+            if con_espera:
+                enc += "  " + _badge_espera(_dias_desde(row["fecha"]))
+            st.markdown(enc)
+            sub = []
+            if mostrar_disenador and row.get("disenador"):
+                sub.append(f"Diseñador: {row['disenador']}")
+            sub.append(f"{fecha_label} {row['fecha']}")
+            st.caption("  ·  ".join(sub))
+        with col_btn:
+            if st.button(boton, key=f"open_{folio}", type=tipo, width="stretch"):
+                st.session_state["folio_abrir"] = folio
+                st.switch_page("captura.py")
 
 
-st.caption("Haz clic en una fila para abrir ese folio.")
+def _ordenar_por_espera(sub):
+    return sub.assign(_d=sub["fecha"].map(_dias_desde)).sort_values("_d", ascending=False)
+
 
 if es_evaluador:
     # --- Pendientes de 2do check: la cola de trabajo del evaluador ---
@@ -120,33 +110,22 @@ if es_evaluador:
     if pend.empty:
         st.success("No hay folios esperando 2do check.", icon=":material/celebration:")
     else:
-        view = pend[["folio", "cliente", "campana", "disenador", "fecha"]].copy()
-        view["dias"] = view["fecha"].map(_dias_desde)
-        view = view.sort_values("dias", ascending=False)
-        view["espera"] = view["dias"].map(_espera_texto)
-        view = view.drop(columns=["dias"])
-        view.columns = ["Folio", "Cliente", "Campaña", "Diseñador", "Enviado el", "Espera"]
-        tabla_folios(view, "pend")
+        for _, row in _ordenar_por_espera(pend).iterrows():
+            tarjeta(row, "Revisar →", tipo="primary", fecha_label="Enviado")
 
     # --- En corrección: esperando a los diseñadores ---
     corr = ultimas[ultimas["estado"] == ESTADO_CORRECCION]
     if not corr.empty:
         st.subheader(f":material/build: En corrección con el diseñador ({len(corr)})")
-        view = corr[["folio", "cliente", "campana", "disenador", "fecha"]].copy()
-        view["dias"] = view["fecha"].map(_dias_desde)
-        view = view.sort_values("dias", ascending=False)
-        view["espera"] = view["dias"].map(_espera_texto)
-        view = view.drop(columns=["dias"])
-        view.columns = ["Folio", "Cliente", "Campaña", "Diseñador", "Rechazado el", "Espera"]
-        tabla_folios(view, "corr")
+        for _, row in _ordenar_por_espera(corr).iterrows():
+            tarjeta(row, "Abrir →", tipo="secondary", fecha_label="Rechazado")
 
     # --- Liberados recientes ---
     lib = ultimas[ultimas["estado"] == ESTADO_LISTO]
     if not lib.empty:
         st.subheader(f":material/check_circle: Liberados ({len(lib)})")
-        view = lib[["folio", "cliente", "campana", "disenador", "fecha"]].copy()
-        view.columns = ["Folio", "Cliente", "Campaña", "Diseñador", "Liberado el"]
-        tabla_folios(view.sort_values("Liberado el", ascending=False).head(15), "lib")
+        for _, row in lib.sort_values("fecha", ascending=False).head(15).iterrows():
+            tarjeta(row, "Ver →", tipo="secondary", fecha_label="Liberado", con_espera=False)
 
 else:
     mios = ultimas[ultimas["disenador"] == usuario["nombre"]]
@@ -162,26 +141,22 @@ else:
         st.success("No tienes folios en corrección.", icon=":material/celebration:")
     else:
         st.caption("Los motivos del rechazo están en el historial del folio y en el PDF.")
-        view = corr[["folio", "cliente", "campana", "fecha"]].copy()
-        view["dias"] = view["fecha"].map(_dias_desde)
-        view = view.sort_values("dias", ascending=False)
-        view["espera"] = view["dias"].map(_espera_texto)
-        view = view.drop(columns=["dias"])
-        view.columns = ["Folio", "Cliente", "Campaña", "Rechazado el", "Espera"]
-        tabla_folios(view, "miscorr")
+        for _, row in _ordenar_por_espera(corr).iterrows():
+            tarjeta(row, "Corregir →", tipo="primary", fecha_label="Rechazado",
+                    mostrar_disenador=False)
 
     # --- Esperando 2do check ---
     pend = mios[mios["estado"] == ESTADO_PENDIENTE]
     if not pend.empty:
         st.subheader(f":material/schedule: Esperando 2do check ({len(pend)})")
-        view = pend[["folio", "cliente", "campana", "fecha"]].copy()
-        view.columns = ["Folio", "Cliente", "Campaña", "Enviado el"]
-        tabla_folios(view.sort_values("Enviado el", ascending=False), "misesp")
+        for _, row in pend.sort_values("fecha", ascending=False).iterrows():
+            tarjeta(row, "Ver →", tipo="secondary", fecha_label="Enviado",
+                    con_espera=False, mostrar_disenador=False)
 
     # --- Liberados ---
     lib = mios[mios["estado"] == ESTADO_LISTO]
     if not lib.empty:
         st.subheader(f":material/check_circle: Liberados ({len(lib)})")
-        view = lib[["folio", "cliente", "campana", "fecha"]].copy()
-        view.columns = ["Folio", "Cliente", "Campaña", "Liberado el"]
-        tabla_folios(view.sort_values("Liberado el", ascending=False).head(15), "mislib")
+        for _, row in lib.sort_values("fecha", ascending=False).head(15).iterrows():
+            tarjeta(row, "Ver →", tipo="secondary", fecha_label="Liberado",
+                    con_espera=False, mostrar_disenador=False)
