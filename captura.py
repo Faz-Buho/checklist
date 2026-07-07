@@ -459,6 +459,7 @@ if guardar:
         if campana_sel == NUEVA_CAMPANA:
             campana_id = db.crear_campana(nueva_campana)
             campana_nombre = nueva_campana.strip()
+            db.registrar_evento("Crear campaña", usuario, detalle=campana_nombre)
         elif campana_sel == SIN_CAMPANA:
             campana_id = None
             campana_nombre = ""
@@ -473,6 +474,9 @@ if guardar:
             folio, cliente, campana_id, usuario["nombre"], respuestas,
             resultado, fecha, tipo=tipo_check,
         )
+
+        db.registrar_evento("2do check" if es_evaluador else "1er check",
+                            usuario, folio=folio, detalle=resultado)
 
         conteos = None
         pdf_bytes = None

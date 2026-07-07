@@ -26,8 +26,15 @@ Las consultas usan placeholders '?' y se convierten a '%s' para Postgres.
 
 import os
 import sqlite3
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 DB_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "checklist_data.db")
+_TZ = ZoneInfo("America/Mexico_City")
+
+
+def _ahora():
+    return datetime.now(_TZ).strftime("%Y-%m-%d %H:%M:%S")
 
 
 def _database_url():
@@ -109,9 +116,20 @@ def init_db():
             status TEXT NOT NULL,
             motivo TEXT
         )""",
+        f"""CREATE TABLE IF NOT EXISTS eventos (
+            id {pk},
+            fecha TEXT NOT NULL,
+            usuario TEXT,
+            email TEXT,
+            rol TEXT,
+            accion TEXT NOT NULL,
+            folio TEXT,
+            detalle TEXT
+        )""",
         "CREATE INDEX IF NOT EXISTS idx_revisiones_folio ON revisiones(folio_id)",
         "CREATE INDEX IF NOT EXISTS idx_respuestas_revision ON respuestas(revision_id)",
         "CREATE INDEX IF NOT EXISTS idx_folios_campana ON folios(campana_id)",
+        "CREATE INDEX IF NOT EXISTS idx_eventos_fecha ON eventos(fecha)",
     ]
     conn = _connect()
     try:
@@ -369,5 +387,42 @@ def get_respuestas_dashboard(filtro="todas"):
             JOIN folios f ON f.id = r.folio_id
             WHERE 1=1{where}
         """, params)
+    finally:
+        conn.close()
+
+
+# ---------------------------------------------------------------------
+# Auditoría (bitácora de accesos y acciones)
+# ---------------------------------------------------------------------
+
+def registrar_evento(accion, usuario, folio=None, detalle=None):
+    """Registra un evento en la bitácora. usuario es el dict {nombre, email,
+    rol}. Best-effort: si algo falla, no interrumpe la app."""
+    try:
+        params = (_ahora(), usuario.get("nombre", ""), usuario.get("email", ""),
+                  usuario.get("rol", ""), accion, folio, detalle)
+        sql = ("INSERT INTO eventos (fecha, usuario, email, rol, accion, folio, detalle) "
+               "VALUES (?, ?, ?, ?, ?, ?, ?)")
+        conn = _connect()
+        try:
+            if _is_postgres():
+                with conn.cursor() as cur:
+                    cur.execute(_sql(sql), params)
+                conn.commit()
+            else:
+                conn.execute(sql, params)
+        finally:
+            conn.close()
+    except Exception:
+        pass
+
+
+def get_eventos(limite=2000):
+    """Bitácora de eventos, del más reciente al más antiguo."""
+    conn = _connect()
+    try:
+        return _fetchall(conn,
+                         "SELECT fecha, usuario, email, rol, accion, folio, detalle "
+                         "FROM eventos ORDER BY id DESC LIMIT ?", (limite,))
     finally:
         conn.close()

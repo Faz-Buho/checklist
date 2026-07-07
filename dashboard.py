@@ -246,9 +246,13 @@ if es_evaluador:
                 if col_accion.button("Cerrar", key=f"cerrar_{c['id']}",
                                      icon=":material/lock:"):
                     db.cambiar_estado_campana(c["id"], "cerrada")
+                    db.registrar_evento("Cerrar campaña", st.session_state["usuario"],
+                                        detalle=c["nombre"])
                     st.rerun()
             else:
                 if col_accion.button("Reabrir", key=f"reabrir_{c['id']}",
                                      icon=":material/lock_open:"):
                     db.cambiar_estado_campana(c["id"], "abierta")
+                    db.registrar_evento("Reabrir campaña", st.session_state["usuario"],
+                                        detalle=c["nombre"])
                     st.rerun()

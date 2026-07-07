@@ -30,6 +30,13 @@ db.init_db()
 
 usuario = auth.get_usuario()
 
+# Registrar el inicio de sesión una sola vez por sesión (para la bitácora
+# de auditoría). El "logout" no es capturable en Streamlit; se usa la
+# última actividad como aproximación.
+if not st.session_state.get("_login_registrado"):
+    db.registrar_evento("Inicio de sesión", usuario)
+    st.session_state["_login_registrado"] = True
+
 # Interruptor de vista para admins: permite ver la app como evaluador o
 # como diseñador sin cambiar de cuenta (para probar ambos flujos).
 if auth.es_admin(usuario):
@@ -51,9 +58,15 @@ if auth.es_admin(usuario):
 
 st.session_state["usuario"] = usuario
 
-pagina = st.navigation([
+paginas = [
     st.Page("inicio.py", title="Inicio", icon=":material/home:", default=True),
     st.Page("captura.py", title="Captura", icon=":material/checklist:"),
     st.Page("dashboard.py", title="Dashboard", icon=":material/monitoring:"),
-])
+]
+# La página de administración solo aparece para admins.
+if auth.es_admin(usuario):
+    paginas.append(st.Page("administracion.py", title="Administración",
+                           icon=":material/admin_panel_settings:"))
+
+pagina = st.navigation(paginas)
 pagina.run()
