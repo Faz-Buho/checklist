@@ -14,6 +14,7 @@ from datetime import datetime
 
 import pandas as pd
 import streamlit as st
+from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode, JsCode
 
 import db
 from auth import ROL_EVALUADOR
@@ -60,9 +61,15 @@ ultimas["disenador"] = ultimas["folio"].map(disenador_por_folio)
 # Semáforo de espera: verde hasta 1 día, ámbar hasta 3, rojo después.
 UMBRAL_VERDE_DIAS = 1
 UMBRAL_AMARILLO_DIAS = 3
-_COLOR_VERDE = ("#166534", "#dcfce7")
-_COLOR_AMBAR = ("#854d0e", "#fef9c3")
-_COLOR_ROJO = ("#991b1b", "#fee2e2")
+
+# Colorea la celda "Espera" según el umbral (mismo lenguaje de color de
+# toda la app). Se ejecuta en el navegador dentro del grid.
+_ESTILO_ESPERA = JsCode("""
+function(p){ if(p.value==null) return {};
+  let d = p.value==='hoy' ? 0 : parseFloat(p.value);
+  if(d<=1) return {'backgroundColor':'#dcfce7','color':'#166534','fontWeight':'600'};
+  if(d<=3) return {'backgroundColor':'#fef9c3','color':'#854d0e','fontWeight':'600'};
+  return {'backgroundColor':'#fee2e2','color':'#991b1b','fontWeight':'600'}; }""")
 
 
 def _dias_desde(fecha_str):
@@ -74,39 +81,51 @@ def _espera_texto(dias):
     return "hoy" if dias < 1 else f"{dias:.1f} d"
 
 
-def _estilo_espera(col):
-    """Colorea la celda de espera según el umbral (mismo lenguaje del
-    resto de la app), leyendo el texto ya formateado."""
-    estilos = []
-    for v in col:
-        dias = 0.0 if v == "hoy" else float(str(v).split()[0])
-        if dias <= UMBRAL_VERDE_DIAS:
-            txt, bg = _COLOR_VERDE
-        elif dias <= UMBRAL_AMARILLO_DIAS:
-            txt, bg = _COLOR_AMBAR
-        else:
-            txt, bg = _COLOR_ROJO
-        estilos.append(f"background-color: {bg}; color: {txt}")
-    return estilos
+def _boton_renderer(etiqueta):
+    """Botón por fila que, al hacer clic, selecciona la fila (AgGrid la
+    devuelve a Python y ahí abrimos el folio)."""
+    return JsCode("""
+    class R {
+      init(p){ this.e=document.createElement('span');
+        const b=document.createElement('button');
+        b.innerText=%r;
+        b.style.cssText='background:#ff4b4b;color:#fff;border:none;border-radius:6px;'
+          +'padding:3px 12px;cursor:pointer;font-weight:600;font-size:13px;';
+        b.addEventListener('click',e=>{e.stopPropagation(); p.node.setSelected(true);});
+        this.e.appendChild(b);}
+      getGui(){return this.e;} }""" % etiqueta)
 
 
 def tabla_folios(df_view, key, accion=None):
-    """Tabla consistente (grid limpio, sin casilla de selección). Colorea
-    la columna 'Espera' si existe. Si 'accion' se indica (etiqueta del
-    botón), muestra debajo un selector de folio + botón que abre ese folio
-    en Captura — más explícito que la selección de fila."""
-    styler = df_view.style
-    if "Espera" in df_view.columns:
-        styler = styler.apply(_estilo_espera, subset=["Espera"])
-    st.dataframe(styler, hide_index=True, width="stretch")
+    """Grid (AgGrid) consistente: cuadrícula limpia, columna 'Espera'
+    coloreada y —si 'accion' se indica— un botón por fila que abre ese
+    folio en Captura. El guardia evita reabrir en bucle al volver."""
+    df = df_view.copy()
     if accion:
-        folios = list(df_view["Folio"])
-        col_sel, col_btn = st.columns([3, 1])
-        sel = col_sel.selectbox("Folio", folios, key=f"sel_{key}",
-                                label_visibility="collapsed")
-        if col_btn.button(accion, key=f"btn_{key}", type="primary", width="stretch"):
-            st.session_state["folio_abrir"] = sel
-            st.switch_page("captura.py")
+        df["Acción"] = ""
+    fila_px = 36
+    gb = GridOptionsBuilder.from_dataframe(df)
+    gb.configure_default_column(sortable=True, filterable=False, resizable=True)
+    gb.configure_grid_options(suppressCellFocus=True, rowHeight=fila_px, headerHeight=fila_px)
+    gb.configure_selection("single", use_checkbox=False)
+    if "Espera" in df.columns:
+        gb.configure_column("Espera", cellStyle=_ESTILO_ESPERA, width=95)
+    if accion:
+        gb.configure_column("Acción", header_name="", cellRenderer=_boton_renderer(accion),
+                            width=130, pinned="right", sortable=False)
+    # Altura ajustada al contenido (encabezado + filas), sin espacio muerto.
+    altura = fila_px * (len(df) + 1) + 4
+    resp = AgGrid(df, gridOptions=gb.build(), allow_unsafe_jscode=True,
+                  update_mode=GridUpdateMode.SELECTION_CHANGED, theme="streamlit",
+                  fit_columns_on_grid_load=True, height=altura, key=key)
+    if accion:
+        sr = resp.selected_rows
+        if sr is not None and len(sr):
+            folio = sr.iloc[0]["Folio"] if hasattr(sr, "iloc") else sr[0]["Folio"]
+            if st.session_state.get(f"_sel_{key}") != folio:
+                st.session_state[f"_sel_{key}"] = folio
+                st.session_state["folio_abrir"] = folio
+                st.switch_page("captura.py")
 
 
 if es_evaluador:
