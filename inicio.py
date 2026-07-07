@@ -76,7 +76,7 @@ def _badge_espera(dias):
 
 
 def tarjeta(row, boton, tipo="primary", fecha_label="Enviado",
-            con_espera=True, mostrar_disenador=True):
+            con_espera=True, mostrar_disenador=True, validado_por=None):
     """Una tarjeta de folio con su info en tres niveles (identificador,
     proyecto, metadatos) y un botón que lo abre en Captura."""
     folio = row["folio"]
@@ -84,7 +84,7 @@ def tarjeta(row, boton, tipo="primary", fecha_label="Enviado",
         col_info, col_btn = st.columns([5, 1], vertical_alignment="center")
         with col_info:
             # Nivel 1: el identificador y la urgencia, solos y prominentes
-            linea1 = f"### Folio {folio}"
+            linea1 = f"##### Folio {folio}"
             if con_espera:
                 linea1 += " &nbsp; " + _badge_espera(_dias_desde(row["fecha"]))
             st.markdown(linea1)
@@ -97,6 +97,9 @@ def tarjeta(row, boton, tipo="primary", fecha_label="Enviado",
             meta = []
             if mostrar_disenador and row.get("disenador"):
                 meta.append(f"Diseñador: {row['disenador']}")
+            if validado_por:
+                meta.append(f"Validado por: {validado_por}")
+            meta.append(f"Check No.: {int(row['revision'])}")
             meta.append(f"{fecha_label}: {row['fecha']}")
             st.caption("　·　".join(meta))
         with col_btn:
@@ -128,13 +131,16 @@ if es_evaluador:
     # --- En corrección: esperando a los diseñadores ---
     corr = ultimas[ultimas["estado"] == ESTADO_CORRECCION]
     if not corr.empty:
+        st.divider()
         st.subheader(f":material/build: En corrección con el diseñador ({len(corr)})")
         for _, row in _ordenar_por_espera(corr).iterrows():
-            tarjeta(row, "Abrir →", tipo="secondary", fecha_label="Rechazado")
+            tarjeta(row, "Abrir →", tipo="secondary", fecha_label="Rechazado",
+                    validado_por=row["evaluador"])
 
     # --- Liberados recientes (tabla nativa: es referencia, no acción) ---
     lib = ultimas[ultimas["estado"] == ESTADO_LISTO]
     if not lib.empty:
+        st.divider()
         st.subheader(f":material/check_circle: Liberados ({len(lib)})")
         view = lib[["folio", "cliente", "campana", "disenador", "fecha"]].copy()
         view.columns = ["Folio", "Cliente", "Campaña", "Diseñador", "Liberado el"]
@@ -156,11 +162,12 @@ else:
         st.caption("Los motivos del rechazo están en el historial del folio y en el PDF.")
         for _, row in _ordenar_por_espera(corr).iterrows():
             tarjeta(row, "Corregir →", tipo="primary", fecha_label="Rechazado",
-                    mostrar_disenador=False)
+                    mostrar_disenador=False, validado_por=row["evaluador"])
 
     # --- Esperando 2do check ---
     pend = mios[mios["estado"] == ESTADO_PENDIENTE]
     if not pend.empty:
+        st.divider()
         st.subheader(f":material/schedule: Esperando 2do check ({len(pend)})")
         for _, row in pend.sort_values("fecha", ascending=False).iterrows():
             tarjeta(row, "Ver →", tipo="secondary", fecha_label="Enviado",
@@ -169,6 +176,7 @@ else:
     # --- Liberados (tabla nativa: es referencia, no acción) ---
     lib = mios[mios["estado"] == ESTADO_LISTO]
     if not lib.empty:
+        st.divider()
         st.subheader(f":material/check_circle: Liberados ({len(lib)})")
         view = lib[["folio", "cliente", "campana", "fecha"]].copy()
         view.columns = ["Folio", "Cliente", "Campaña", "Liberado el"]
