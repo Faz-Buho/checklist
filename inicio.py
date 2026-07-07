@@ -79,29 +79,27 @@ def tarjeta(row, boton, tipo="primary", fecha_label="Enviado",
             con_espera=True, mostrar_disenador=True, validado_por=None):
     """Tarjeta plegable con st.expander (colapsa al instante en el
     navegador, sin recargar): el encabezado muestra folio + campaña +
-    urgencia; al desplegar, los detalles. El botón que abre el folio va al
-    lado, siempre visible."""
+    urgencia; al desplegar, los detalles y el botón que abre el folio."""
     folio = row["folio"]
-    col_exp, col_btn = st.columns([5, 1.3], vertical_alignment="center")
-    with col_exp:
-        label = f"**Folio {folio}**"
-        if row.get("campana"):
-            label += f"　·　{row['campana']}"
-        if con_espera:
-            label += "　" + _badge_espera(_dias_desde(row["fecha"]))
-        with st.expander(label):
-            detalle = [f"Cliente: {row['cliente'] or '—'}"]
-            if mostrar_disenador and row.get("disenador"):
-                detalle.append(f"Diseñador: {row['disenador']}")
-            if validado_por:
-                detalle.append(f"Validado por: {validado_por}")
-            detalle.append(f"Check No.: {int(row['revision'])}")
-            detalle.append(f"{fecha_label}: {row['fecha']}")
-            st.markdown("　·　".join(detalle))
-    with col_btn:
-        if st.button(boton, key=f"open_{folio}", type=tipo, width="stretch"):
-            st.session_state["folio_abrir"] = folio
-            st.switch_page("captura.py")
+    label = f"**Folio {folio}**"
+    if row.get("campana"):
+        label += f"　·　{row['campana']}"
+    if con_espera:
+        label += "　" + _badge_espera(_dias_desde(row["fecha"]))
+    with st.expander(label):
+        detalle = [f"Cliente: {row['cliente'] or '—'}"]
+        if mostrar_disenador and row.get("disenador"):
+            detalle.append(f"Diseñador: {row['disenador']}")
+        if validado_por:
+            detalle.append(f"Validado por: {validado_por}")
+        detalle.append(f"Check No.: {int(row['revision'])}")
+        detalle.append(f"{fecha_label}: {row['fecha']}")
+        st.markdown("　·　".join(detalle))
+        col_btn, _ = st.columns([1, 3])
+        with col_btn:
+            if st.button(boton, key=f"open_{folio}", type=tipo, width="stretch"):
+                st.session_state["folio_abrir"] = folio
+                st.switch_page("captura.py")
 
 
 def tabla_liberados(view):
