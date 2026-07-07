@@ -77,35 +77,39 @@ def _badge_espera(dias):
 
 def tarjeta(row, boton, tipo="primary", fecha_label="Enviado",
             con_espera=True, mostrar_disenador=True, validado_por=None):
-    """Una tarjeta de folio con su info en tres niveles (identificador,
-    proyecto, metadatos) y un botón que lo abre en Captura."""
+    """Tarjeta plegable: colapsada muestra folio + campaña + urgencia y el
+    botón que abre el folio; el chevron la despliega para ver los detalles
+    (cliente, diseñador, validado por, check, fecha)."""
     folio = row["folio"]
+    exp_key = f"exp_{folio}"
+    abierto = st.session_state.get(exp_key, False)
     with st.container(border=True):
-        col_info, col_btn = st.columns([5, 1], vertical_alignment="center")
+        col_ch, col_info, col_btn = st.columns([0.5, 5, 1.3], vertical_alignment="center")
+        with col_ch:
+            icono = ":material/expand_more:" if abierto else ":material/chevron_right:"
+            if st.button("", icon=icono, key=f"tog_{folio}", type="tertiary"):
+                st.session_state[exp_key] = not abierto
+                st.rerun()
         with col_info:
-            # Nivel 1: el identificador y la urgencia, solos y prominentes
-            linea1 = f"##### Folio {folio}"
-            if con_espera:
-                linea1 += " &nbsp; " + _badge_espera(_dias_desde(row["fecha"]))
-            st.markdown(linea1)
-            # Nivel 2: cliente y campaña
-            proyecto = row["cliente"] or "—"
+            enc = f"**Folio {folio}**"
             if row.get("campana"):
-                proyecto += f"  ·  {row['campana']}"
-            st.markdown(proyecto)
-            # Nivel 3: metadatos, atenuados
-            meta = []
-            if mostrar_disenador and row.get("disenador"):
-                meta.append(f"Diseñador: {row['disenador']}")
-            if validado_por:
-                meta.append(f"Validado por: {validado_por}")
-            meta.append(f"Check No.: {int(row['revision'])}")
-            meta.append(f"{fecha_label}: {row['fecha']}")
-            st.caption("　·　".join(meta))
+                enc += f"  ·  {row['campana']}"
+            if con_espera:
+                enc += " &nbsp; " + _badge_espera(_dias_desde(row["fecha"]))
+            st.markdown(enc)
         with col_btn:
             if st.button(boton, key=f"open_{folio}", type=tipo, width="stretch"):
                 st.session_state["folio_abrir"] = folio
                 st.switch_page("captura.py")
+        if abierto:
+            detalle = [f"Cliente: {row['cliente'] or '—'}"]
+            if mostrar_disenador and row.get("disenador"):
+                detalle.append(f"Diseñador: {row['disenador']}")
+            if validado_por:
+                detalle.append(f"Validado por: {validado_por}")
+            detalle.append(f"Check No.: {int(row['revision'])}")
+            detalle.append(f"{fecha_label}: {row['fecha']}")
+            st.caption("　·　".join(detalle))
 
 
 def tabla_liberados(view):
