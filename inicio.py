@@ -121,7 +121,7 @@ def _ordenar_por_espera(sub):
 if es_evaluador:
     # --- Pendientes de 2do check: la cola de trabajo del evaluador ---
     pend = ultimas[ultimas["estado"] == ESTADO_PENDIENTE]
-    st.subheader(f":material/inbox: Pendientes de 2do check ({len(pend)})")
+    st.subheader(f":material/inbox: Pendientes de 2do check &nbsp;&nbsp; :gray-badge[{len(pend)}]")
     if pend.empty:
         st.success("No hay folios esperando 2do check.", icon=":material/celebration:")
     else:
@@ -132,7 +132,7 @@ if es_evaluador:
     corr = ultimas[ultimas["estado"] == ESTADO_CORRECCION]
     if not corr.empty:
         st.divider()
-        st.subheader(f":material/build: En corrección con el diseñador ({len(corr)})")
+        st.subheader(f":material/build: En corrección con el diseñador &nbsp;&nbsp; :gray-badge[{len(corr)}]")
         for _, row in _ordenar_por_espera(corr).iterrows():
             tarjeta(row, "Abrir →", tipo="secondary", fecha_label="Rechazado",
                     validado_por=row["evaluador"])
@@ -141,7 +141,7 @@ if es_evaluador:
     lib = ultimas[ultimas["estado"] == ESTADO_LISTO]
     if not lib.empty:
         st.divider()
-        st.subheader(f":material/verified: Certificados ({len(lib)})")
+        st.subheader(f":material/verified: Certificados")
         view = lib[["folio", "cliente", "campana", "disenador", "fecha"]].copy()
         view.columns = ["Folio", "Cliente", "Campaña", "Diseñador", "Certificado el"]
         tabla_liberados(view)
@@ -155,7 +155,7 @@ else:
 
     # --- Lo que le toca corregir: su cola de trabajo ---
     corr = mios[mios["estado"] == ESTADO_CORRECCION]
-    st.subheader(f":material/build: En corrección — te toca ({len(corr)})")
+    st.subheader(f":material/build: En corrección — te toca &nbsp;&nbsp; :gray-badge[{len(corr)}]")
     if corr.empty:
         st.success("No tienes folios en corrección.", icon=":material/celebration:")
     else:
@@ -168,7 +168,7 @@ else:
     pend = mios[mios["estado"] == ESTADO_PENDIENTE]
     if not pend.empty:
         st.divider()
-        st.subheader(f":material/schedule: Esperando 2do check ({len(pend)})")
+        st.subheader(f":material/schedule: Esperando 2do check &nbsp;&nbsp; :gray-badge[{len(pend)}]")
         for _, row in pend.sort_values("fecha", ascending=False).iterrows():
             tarjeta(row, "Ver →", tipo="secondary", fecha_label="Enviado",
                     con_espera=False, mostrar_disenador=False)
@@ -177,7 +177,7 @@ else:
     lib = mios[mios["estado"] == ESTADO_LISTO]
     if not lib.empty:
         st.divider()
-        st.subheader(f":material/verified: Certificados ({len(lib)})")
+        st.subheader(f":material/verified: Certificados")
         view = lib[["folio", "cliente", "campana", "fecha"]].copy()
         view.columns = ["Folio", "Cliente", "Campaña", "Certificado el"]
         tabla_liberados(view)
