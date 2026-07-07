@@ -395,56 +395,54 @@ respuestas = {}
 faltan_motivo = []
 fallas_disenador = []
 
-tab_tecnica, tab_operativa = st.tabs([
-    ":material/brush: Parte técnica (con el arte abierto)",
-    ":material/fact_check: Parte operativa (contra la orden de trabajo)",
-])
-tab_por_bloque = {"tecnica": tab_tecnica, "operativa": tab_operativa}
+# Ambos bloques (técnica y operativa) en una sola pantalla, uno debajo
+# del otro (antes eran pestañas).
+BLOQUE_ICONO = {"tecnica": ":material/brush:", "operativa": ":material/fact_check:"}
 
 for bloque_id, bloque_titulo in BLOQUES:
-    with tab_por_bloque[bloque_id]:
-        items_bloque = [i for i in CHECKLIST_ITEMS if i["bloque"] == bloque_id]
-        categorias = list(dict.fromkeys(i["categoria"] for i in items_bloque))
+    st.header(f"{BLOQUE_ICONO.get(bloque_id, '')} {bloque_titulo}")
+    items_bloque = [i for i in CHECKLIST_ITEMS if i["bloque"] == bloque_id]
+    categorias = list(dict.fromkeys(i["categoria"] for i in items_bloque))
 
-        for categoria in categorias:
-            with st.container(border=True):
-                st.subheader(categoria)
-                for item in [i for i in items_bloque if i["categoria"] == categoria]:
-                    item_id = item["id"]
-                    # Sin selección por default: cada punto se evalúa a conciencia.
-                    prefill_item = prefill.get(item_id) if prefill else None
-                    default_status = prefill_item["status"] if prefill_item else None
+    for categoria in categorias:
+        with st.container(border=True):
+            st.subheader(categoria)
+            for item in [i for i in items_bloque if i["categoria"] == categoria]:
+                item_id = item["id"]
+                # Sin selección por default: cada punto se evalúa a conciencia.
+                prefill_item = prefill.get(item_id) if prefill else None
+                default_status = prefill_item["status"] if prefill_item else None
 
-                    # El key incluye el folio: al cambiar de folio los
-                    # controles se crean de cero (aplica el prefill y no
-                    # se arrastran marcas de un folio a otro).
-                    status = st.segmented_control(
-                        item["texto"],
-                        STATUS_OPTIONS,
-                        format_func=status_badge,
-                        default=default_status if default_status in STATUS_OPTIONS else None,
-                        key=f"status_{item_id}_{folio}",
-                    )
+                # El key incluye el folio: al cambiar de folio los
+                # controles se crean de cero (aplica el prefill y no
+                # se arrastran marcas de un folio a otro).
+                status = st.segmented_control(
+                    item["texto"],
+                    STATUS_OPTIONS,
+                    format_func=status_badge,
+                    default=default_status if default_status in STATUS_OPTIONS else None,
+                    key=f"status_{item_id}_{folio}",
+                )
 
-                    motivo = ""
-                    if status in STATUS_REQUIRES_MOTIVO:
-                        if es_evaluador:
-                            motivo = st.text_area(
-                                f"Motivo / ajuste requerido — {status_badge(status)}",
-                                key=f"motivo_{item_id}_{folio}",
-                                value=(prefill_item.get("motivo", "")
-                                       if prefill_item and prefill_item["status"] == status else ""),
-                                placeholder="Describe qué está mal y qué ajuste se necesita...",
-                            )
-                            if not motivo.strip():
-                                faltan_motivo.append(item["texto"])
-                        else:
-                            st.warning("Corrige este punto en el arte: debe quedar en "
-                                       "Cumple o N/A para poder enviar a 2do check.",
-                                       icon=":material/build:")
-                            fallas_disenador.append(item["texto"])
+                motivo = ""
+                if status in STATUS_REQUIRES_MOTIVO:
+                    if es_evaluador:
+                        motivo = st.text_area(
+                            f"Motivo / ajuste requerido — {status_badge(status)}",
+                            key=f"motivo_{item_id}_{folio}",
+                            value=(prefill_item.get("motivo", "")
+                                   if prefill_item and prefill_item["status"] == status else ""),
+                            placeholder="Describe qué está mal y qué ajuste se necesita...",
+                        )
+                        if not motivo.strip():
+                            faltan_motivo.append(item["texto"])
+                    else:
+                        st.warning("Corrige este punto en el arte: debe quedar en "
+                                   "Cumple o N/A para poder enviar a 2do check.",
+                                   icon=":material/build:")
+                        fallas_disenador.append(item["texto"])
 
-                    respuestas[item_id] = {"status": status, "motivo": motivo}
+                respuestas[item_id] = {"status": status, "motivo": motivo}
 
 # --- Guardar ---
 st.divider()
