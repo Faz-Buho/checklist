@@ -211,8 +211,6 @@ def generar_pdf(proyecto_info, respuestas, resultado, revision_num):
 # ---------------------------------------------------------------------
 
 usuario = st.session_state["usuario"]
-es_evaluador = usuario["rol"] == ROL_EVALUADOR
-tipo_check = TIPO_SEGUNDO if es_evaluador else TIPO_PRIMER
 
 # Estado diferido (se aplica ANTES de instanciar widgets, que es cuando
 # Streamlit permite modificarlos):
@@ -225,6 +223,28 @@ if st.session_state.pop("limpiar_folio", None):
 if "folio_abrir" in st.session_state:
     st.session_state["folio"] = st.session_state.pop("folio_abrir")
 
+# --- Sidebar: el folio primero (su ESTADO define el tipo de check) ---
+with st.sidebar:
+    st.header("Datos del proyecto")
+    folio = st.text_input("Folio *", key="folio").strip()
+    folio_info = db.get_folio(folio) if folio else None
+    revisiones_folio = db.get_revisiones(folio) if folio else []
+    estado = estado_folio(revisiones_folio)
+
+# El TIPO de check lo define el ESTADO del folio, NO el rol de la persona
+# (hay quien es diseñador y evaluador a la vez). Un folio nuevo o en
+# corrección es un 1er check (autorevisión de quien lo somete); uno
+# pendiente es un 2do check (revisión independiente). Así un folio nuevo
+# nunca se certifica sin pasar antes por su 2do check.
+es_evaluador = (estado == ESTADO_PENDIENTE)
+tipo_check = TIPO_SEGUNDO if es_evaluador else TIPO_PRIMER
+
+# Independencia: quien diseñó el folio (hizo su último 1er check) no puede
+# hacer su propio 2do check; debe revisarlo otra persona.
+_primeros = [r for r in revisiones_folio if r.get("tipo") == TIPO_PRIMER]
+disenador_folio = _primeros[-1]["evaluador"] if _primeros else None
+bloqueo_propio = es_evaluador and disenador_folio == usuario["nombre"]
+
 if es_evaluador:
     st.title("2do check — Revisión de calidad")
 else:
@@ -232,15 +252,8 @@ else:
 st.caption(f"Sesión de **{usuario['nombre']}**"
            + (f" ({usuario['email']})" if usuario["email"] else ""))
 
-# --- Sidebar: datos del proyecto ---
+# --- Sidebar: resto de datos del proyecto ---
 with st.sidebar:
-    st.header("Datos del proyecto")
-    folio = st.text_input("Folio *", key="folio").strip()
-
-    folio_info = db.get_folio(folio) if folio else None
-    revisiones_folio = db.get_revisiones(folio) if folio else []
-    estado = estado_folio(revisiones_folio)
-
     # Cliente y campaña son atributos del folio: si ya existe se
     # precargan, pero quedan editables para corregir asignaciones.
     cliente = st.text_input("Cliente",
@@ -367,6 +380,16 @@ else:
         "Solo puedes enviarlo cuando todo esté en Cumple o N/A — "
         "si algo falla, corrígelo en el arte antes de enviar."
     )
+
+# Independencia: no puedes hacer el 2do check de un folio que tú enviaste.
+if bloqueo_propio:
+    st.warning(
+        f"Este folio lo enviaste tú ({disenador_folio}). El 2do check debe "
+        "hacerlo **otra persona** — es la revisión independiente. Pídele a "
+        "otro evaluador que lo revise.",
+        icon=":material/block:",
+    )
+    st.stop()
 
 respuestas = {}
 faltan_motivo = []

@@ -114,7 +114,10 @@ def _ordenar_por_espera(sub):
 
 if es_evaluador:
     # --- Pendientes de 2do check: la cola de trabajo del evaluador ---
-    pend = ultimas[ultimas["estado"] == ESTADO_PENDIENTE]
+    # Se excluyen los folios que el propio evaluador diseñó: el 2do check
+    # debe hacerlo otra persona (revisión independiente).
+    pend = ultimas[(ultimas["estado"] == ESTADO_PENDIENTE)
+                   & (ultimas["disenador"] != usuario["nombre"])]
     st.subheader(f":material/inbox: Pendientes de 2do check &nbsp;&nbsp; :gray-badge[{len(pend)}]")
     if pend.empty:
         st.success("No hay folios esperando 2do check.", icon=":material/celebration:")
