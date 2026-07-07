@@ -77,26 +77,38 @@ def _badge_espera(dias):
 
 def tarjeta(row, boton, tipo="primary", fecha_label="Enviado",
             con_espera=True, mostrar_disenador=True):
-    """Una tarjeta de folio con su info y un botón que lo abre en Captura."""
+    """Una tarjeta de folio con su info en tres niveles (identificador,
+    proyecto, metadatos) y un botón que lo abre en Captura."""
     folio = row["folio"]
     with st.container(border=True):
         col_info, col_btn = st.columns([5, 1], vertical_alignment="center")
         with col_info:
-            enc = f"**Folio {folio}**  ·  {row['cliente'] or '—'}"
-            if row.get("campana"):
-                enc += f"  ·  {row['campana']}"
+            # Nivel 1: el identificador y la urgencia, solos y prominentes
+            linea1 = f"### Folio {folio}"
             if con_espera:
-                enc += "  " + _badge_espera(_dias_desde(row["fecha"]))
-            st.markdown(enc)
-            sub = []
+                linea1 += " &nbsp; " + _badge_espera(_dias_desde(row["fecha"]))
+            st.markdown(linea1)
+            # Nivel 2: cliente y campaña
+            proyecto = row["cliente"] or "—"
+            if row.get("campana"):
+                proyecto += f"  ·  {row['campana']}"
+            st.markdown(proyecto)
+            # Nivel 3: metadatos, atenuados
+            meta = []
             if mostrar_disenador and row.get("disenador"):
-                sub.append(f"Diseñador: {row['disenador']}")
-            sub.append(f"{fecha_label} {row['fecha']}")
-            st.caption("  ·  ".join(sub))
+                meta.append(f"Diseñador: {row['disenador']}")
+            meta.append(f"{fecha_label}: {row['fecha']}")
+            st.caption("　·　".join(meta))
         with col_btn:
             if st.button(boton, key=f"open_{folio}", type=tipo, width="stretch"):
                 st.session_state["folio_abrir"] = folio
                 st.switch_page("captura.py")
+
+
+def tabla_liberados(view):
+    """Liberados como tabla nativa (referencia, no acción)."""
+    st.dataframe(view.sort_values(view.columns[-1], ascending=False).head(15),
+                 hide_index=True, width="stretch")
 
 
 def _ordenar_por_espera(sub):
@@ -120,12 +132,13 @@ if es_evaluador:
         for _, row in _ordenar_por_espera(corr).iterrows():
             tarjeta(row, "Abrir →", tipo="secondary", fecha_label="Rechazado")
 
-    # --- Liberados recientes ---
+    # --- Liberados recientes (tabla nativa: es referencia, no acción) ---
     lib = ultimas[ultimas["estado"] == ESTADO_LISTO]
     if not lib.empty:
         st.subheader(f":material/check_circle: Liberados ({len(lib)})")
-        for _, row in lib.sort_values("fecha", ascending=False).head(15).iterrows():
-            tarjeta(row, "Ver →", tipo="secondary", fecha_label="Liberado", con_espera=False)
+        view = lib[["folio", "cliente", "campana", "disenador", "fecha"]].copy()
+        view.columns = ["Folio", "Cliente", "Campaña", "Diseñador", "Liberado el"]
+        tabla_liberados(view)
 
 else:
     mios = ultimas[ultimas["disenador"] == usuario["nombre"]]
@@ -153,10 +166,10 @@ else:
             tarjeta(row, "Ver →", tipo="secondary", fecha_label="Enviado",
                     con_espera=False, mostrar_disenador=False)
 
-    # --- Liberados ---
+    # --- Liberados (tabla nativa: es referencia, no acción) ---
     lib = mios[mios["estado"] == ESTADO_LISTO]
     if not lib.empty:
         st.subheader(f":material/check_circle: Liberados ({len(lib)})")
-        for _, row in lib.sort_values("fecha", ascending=False).head(15).iterrows():
-            tarjeta(row, "Ver →", tipo="secondary", fecha_label="Liberado",
-                    con_espera=False, mostrar_disenador=False)
+        view = lib[["folio", "cliente", "campana", "fecha"]].copy()
+        view.columns = ["Folio", "Cliente", "Campaña", "Liberado el"]
+        tabla_liberados(view)
