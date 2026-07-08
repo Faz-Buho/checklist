@@ -33,6 +33,17 @@ ADMINS_LOCAL = {"Pablo Faz"}
 def es_admin(usuario):
     return usuario.get("email") in ADMINS or usuario.get("nombre") in ADMINS_LOCAL
 
+
+# Solo estas personas pueden editar el formulario del checklist (gestor).
+# Es más restrictivo que es_admin a propósito.
+EDITORES_FORMULARIO = {"pfaz@buhoms.com"}
+EDITORES_FORMULARIO_LOCAL = {"Pablo Faz"}
+
+
+def puede_editar_formulario(usuario):
+    return (usuario.get("email") in EDITORES_FORMULARIO
+            or (not usuario.get("email") and usuario.get("nombre") in EDITORES_FORMULARIO_LOCAL))
+
 # Correos con rol de evaluador (2do check). Cualquier otro correo de un
 # dominio permitido entra como diseñador.
 EVALUADORES = {

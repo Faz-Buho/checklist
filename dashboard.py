@@ -25,7 +25,6 @@ from catalogo import (
     ESTADO_CORRECCION,
     ESTADO_LISTO,
     ESTADO_PENDIENTE,
-    ITEM_TEXTO,
     RESULTADO_LISTO,
     STATUS_REQUIRES_MOTIVO,
     TIPO_PRIMER,
@@ -197,11 +196,12 @@ with col_izq:
     if fallas.empty:
         st.success("Ninguna falla registrada en esta selección.")
     else:
+        item_texto = db.get_item_texto()
         conteo = (fallas.groupby("item_id").size()
                   .sort_values(ascending=False).head(10)
                   .rename("fallas").reset_index())
         conteo["punto"] = conteo["item_id"].map(
-            lambda i: ITEM_TEXTO.get(i, i)[:58] + ("…" if len(ITEM_TEXTO.get(i, i)) > 58 else ""))
+            lambda i: item_texto.get(i, i)[:58] + ("…" if len(item_texto.get(i, i)) > 58 else ""))
         base = alt.Chart(conteo).encode(
             x=alt.X("fallas:Q", title="Veces marcado 'Con ajuste' o 'No cumple'",
                     axis=alt.Axis(format="d", tickMinStep=1)),

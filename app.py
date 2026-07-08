@@ -72,6 +72,10 @@ paginas = [
 if auth.es_admin(usuario):
     paginas.append(st.Page("administracion.py", title="Administración",
                            icon=":material/admin_panel_settings:"))
+# El gestor del formulario solo para quien puede editarlo (pfaz@buhoms.com).
+if auth.puede_editar_formulario(usuario):
+    paginas.append(st.Page("formulario.py", title="Formulario",
+                           icon=":material/edit_note:"))
 
 pagina = st.navigation(paginas)
 pagina.run()

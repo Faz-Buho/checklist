@@ -20,8 +20,6 @@ from fpdf.fonts import FontFace
 import db
 from auth import ROL_DISENADOR, ROL_EVALUADOR
 from catalogo import (
-    BLOQUES,
-    CHECKLIST_ITEMS,
     ESTADO_CORRECCION,
     ESTADO_LISTO,
     ESTADO_PENDIENTE,
@@ -89,7 +87,7 @@ class _ReportePDF(FPDF):
         self.cell(0, 8, _pdf_text(f"Doble check de preproyectos - Página {self.page_no()}/{{nb}}"), align="C")
 
 
-def generar_pdf(proyecto_info, respuestas, resultado, revision_num):
+def generar_pdf(proyecto_info, respuestas, resultado, revision_num, checklist, bloques):
     pdf = _ReportePDF(format="A4")
     pdf.set_auto_page_break(auto=True, margin=18)
     pdf.set_margins(15, 15, 15)
@@ -160,8 +158,8 @@ def generar_pdf(proyecto_info, respuestas, resultado, revision_num):
     item_style = FontFace(color=(30, 41, 59), size_pt=9)
     motivo_style = FontFace(color=(71, 85, 105), size_pt=9)
 
-    for bloque_id, bloque_titulo in BLOQUES:
-        items_bloque = [i for i in CHECKLIST_ITEMS if i["bloque"] == bloque_id]
+    for bloque_id, bloque_titulo in bloques:
+        items_bloque = [i for i in checklist if i["bloque"] == bloque_id]
         # Evitar que el título del bloque quede huérfano al final de la página
         if pdf.get_y() > pdf.h - 75:
             pdf.add_page()
@@ -395,13 +393,17 @@ respuestas = {}
 faltan_motivo = []
 fallas_disenador = []
 
+# El checklist se lee de la base (editable desde el gestor del formulario).
+checklist = db.get_checklist(solo_activos=True)
+bloques = db.get_bloques()
+
 # Ambos bloques (técnica y operativa) en una sola pantalla, uno debajo
 # del otro (antes eran pestañas).
 BLOQUE_ICONO = {"tecnica": ":material/brush:", "operativa": ":material/fact_check:"}
 
-for bloque_id, bloque_titulo in BLOQUES:
+for bloque_id, bloque_titulo in bloques:
     st.header(f"{BLOQUE_ICONO.get(bloque_id, '')} {bloque_titulo}")
-    items_bloque = [i for i in CHECKLIST_ITEMS if i["bloque"] == bloque_id]
+    items_bloque = [i for i in checklist if i["bloque"] == bloque_id]
     categorias = list(dict.fromkeys(i["categoria"] for i in items_bloque))
 
     for categoria in categorias:
@@ -511,7 +513,8 @@ if guardar:
                 "fecha": fecha,
                 "campana": campana_nombre,
             }
-            pdf_bytes = generar_pdf(proyecto_info, respuestas, resultado, revision_num)
+            pdf_bytes = generar_pdf(proyecto_info, respuestas, resultado, revision_num,
+                                    checklist, bloques)
 
         # La confirmación (y el PDF) se muestran en el siguiente rerun con
         # el folio ya limpio: así el botón de descarga no se esfuma al

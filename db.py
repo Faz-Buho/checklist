@@ -26,6 +26,7 @@ Las consultas usan placeholders '?' y se convierten a '%s' para Postgres.
 
 import os
 import sqlite3
+import uuid
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -132,6 +133,20 @@ def init_db():
             rol TEXT,
             last_seen TEXT NOT NULL
         )""",
+        # Formulario del checklist, editable desde el gestor (admin).
+        """CREATE TABLE IF NOT EXISTS checklist_bloques (
+            clave TEXT PRIMARY KEY,
+            nombre TEXT NOT NULL,
+            orden INTEGER NOT NULL DEFAULT 0
+        )""",
+        """CREATE TABLE IF NOT EXISTS checklist_items (
+            clave TEXT PRIMARY KEY,
+            bloque TEXT NOT NULL,
+            categoria TEXT NOT NULL,
+            texto TEXT NOT NULL,
+            orden INTEGER NOT NULL DEFAULT 0,
+            activo INTEGER NOT NULL DEFAULT 1
+        )""",
         "CREATE INDEX IF NOT EXISTS idx_revisiones_folio ON revisiones(folio_id)",
         "CREATE INDEX IF NOT EXISTS idx_respuestas_revision ON respuestas(revision_id)",
         "CREATE INDEX IF NOT EXISTS idx_folios_campana ON folios(campana_id)",
@@ -155,6 +170,158 @@ def init_db():
                              "tipo TEXT NOT NULL DEFAULT 'segundo'")
             except sqlite3.OperationalError:
                 pass  # la columna ya existe
+    finally:
+        conn.close()
+    _seed_checklist()
+
+
+# ---------------------------------------------------------------------
+# Checklist (formulario editable): bloques e ítems
+# ---------------------------------------------------------------------
+
+def _seed_checklist():
+    """Siembra bloques e ítems desde catalogo.py la primera vez (tablas
+    vacías). Usa ON CONFLICT/OR IGNORE para ser idempotente aunque dos
+    instancias arranquen a la vez."""
+    conn = _connect()
+    try:
+        row = _fetchone(conn, "SELECT COUNT(*) AS n FROM checklist_items")
+        if row and int(row["n"]) > 0:
+            return
+        from catalogo import BLOQUES, CHECKLIST_ITEMS
+        bloques = [(clave, nombre, i) for i, (clave, nombre) in enumerate(BLOQUES)]
+        items = [(it["id"], it["bloque"], it["categoria"], it["texto"], i, 1)
+                 for i, it in enumerate(CHECKLIST_ITEMS)]
+        if _is_postgres():
+            bsql = ("INSERT INTO checklist_bloques (clave, nombre, orden) "
+                    "VALUES (?, ?, ?) ON CONFLICT (clave) DO NOTHING")
+            isql = ("INSERT INTO checklist_items (clave, bloque, categoria, texto, orden, activo) "
+                    "VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (clave) DO NOTHING")
+            with conn.cursor() as cur:
+                cur.executemany(_sql(bsql), bloques)
+                cur.executemany(_sql(isql), items)
+            conn.commit()
+        else:
+            conn.executemany("INSERT OR IGNORE INTO checklist_bloques (clave, nombre, orden) "
+                             "VALUES (?, ?, ?)", bloques)
+            conn.executemany("INSERT OR IGNORE INTO checklist_items "
+                             "(clave, bloque, categoria, texto, orden, activo) "
+                             "VALUES (?, ?, ?, ?, ?, ?)", items)
+    finally:
+        conn.close()
+
+
+def get_bloques():
+    """Bloques del checklist ordenados: lista de (clave, nombre)."""
+    conn = _connect()
+    try:
+        rows = _fetchall(conn, "SELECT clave, nombre FROM checklist_bloques "
+                               "ORDER BY orden, clave")
+        return [(r["clave"], r["nombre"]) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_checklist(solo_activos=True):
+    """Ítems del checklist ordenados; forma compatible con CHECKLIST_ITEMS
+    (id, bloque, categoria, texto) más orden y activo."""
+    conn = _connect()
+    try:
+        q = ("SELECT clave, bloque, categoria, texto, orden, activo "
+             "FROM checklist_items")
+        if solo_activos:
+            q += " WHERE activo = 1"
+        q += " ORDER BY orden, clave"
+        return [{"id": r["clave"], "bloque": r["bloque"], "categoria": r["categoria"],
+                 "texto": r["texto"], "orden": r["orden"], "activo": int(r["activo"])}
+                for r in _fetchall(conn, q)]
+    finally:
+        conn.close()
+
+
+def get_item_texto():
+    """{clave: texto} de TODOS los ítems (activos e inactivos), para poder
+    mostrar respuestas históricas de puntos que ya se desactivaron."""
+    conn = _connect()
+    try:
+        return {r["clave"]: r["texto"]
+                for r in _fetchall(conn, "SELECT clave, texto FROM checklist_items")}
+    finally:
+        conn.close()
+
+
+def _upsert(conn, sql_pg, sql_sqlite, params):
+    if _is_postgres():
+        with conn.cursor() as cur:
+            cur.execute(_sql(sql_pg), params)
+        conn.commit()
+    else:
+        conn.execute(sql_sqlite, params)
+
+
+def guardar_item(clave, bloque, categoria, texto, orden, activo):
+    """Inserta o actualiza un punto del checklist."""
+    conn = _connect()
+    try:
+        _upsert(
+            conn,
+            "INSERT INTO checklist_items (clave, bloque, categoria, texto, orden, activo) "
+            "VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (clave) DO UPDATE SET "
+            "bloque=EXCLUDED.bloque, categoria=EXCLUDED.categoria, texto=EXCLUDED.texto, "
+            "orden=EXCLUDED.orden, activo=EXCLUDED.activo",
+            "INSERT INTO checklist_items (clave, bloque, categoria, texto, orden, activo) "
+            "VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(clave) DO UPDATE SET "
+            "bloque=excluded.bloque, categoria=excluded.categoria, texto=excluded.texto, "
+            "orden=excluded.orden, activo=excluded.activo",
+            (clave, bloque, categoria, texto, int(orden), int(activo)),
+        )
+    finally:
+        conn.close()
+
+
+def crear_item(bloque, categoria, texto, orden):
+    """Crea un punto nuevo con clave autogenerada única y estable."""
+    clave = "item_" + uuid.uuid4().hex[:10]
+    guardar_item(clave, bloque, categoria, texto, orden, 1)
+    return clave
+
+
+def guardar_bloque(clave, nombre, orden):
+    conn = _connect()
+    try:
+        _upsert(
+            conn,
+            "INSERT INTO checklist_bloques (clave, nombre, orden) VALUES (?, ?, ?) "
+            "ON CONFLICT (clave) DO UPDATE SET nombre=EXCLUDED.nombre, orden=EXCLUDED.orden",
+            "INSERT INTO checklist_bloques (clave, nombre, orden) VALUES (?, ?, ?) "
+            "ON CONFLICT(clave) DO UPDATE SET nombre=excluded.nombre, orden=excluded.orden",
+            (clave, nombre, int(orden)),
+        )
+    finally:
+        conn.close()
+
+
+def crear_bloque(nombre, orden):
+    clave = "bloque_" + uuid.uuid4().hex[:8]
+    guardar_bloque(clave, nombre, orden)
+    return clave
+
+
+def eliminar_bloque(clave):
+    """Borra un bloque solo si no tiene ítems; si los tiene, no hace nada."""
+    conn = _connect()
+    try:
+        con_items = _fetchone(conn, "SELECT COUNT(*) AS n FROM checklist_items WHERE bloque = ?",
+                              (clave,))
+        if con_items and int(con_items["n"]) > 0:
+            return False
+        if _is_postgres():
+            with conn.cursor() as cur:
+                cur.execute(_sql("DELETE FROM checklist_bloques WHERE clave = ?"), (clave,))
+            conn.commit()
+        else:
+            conn.execute("DELETE FROM checklist_bloques WHERE clave = ?", (clave,))
+        return True
     finally:
         conn.close()
 
