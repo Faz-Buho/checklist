@@ -218,46 +218,35 @@ usuario = st.session_state["usuario"]
 # - folio_abrir: un clic en una tabla de la página Inicio precarga el folio.
 if st.session_state.pop("limpiar_folio", None):
     st.session_state["folio"] = ""
+    st.session_state.pop("captura_abierta", None)
 if "folio_abrir" in st.session_state:
-    st.session_state["folio"] = st.session_state.pop("folio_abrir")
+    # Un clic en un folio de la página Inicio lo precarga y abre directo
+    # el checklist, sin pasar por el botón de "abrir".
+    _f = st.session_state.pop("folio_abrir")
+    st.session_state["folio"] = _f
+    st.session_state["captura_abierta"] = _f
 
-# --- Sidebar: el folio primero (su ESTADO define el tipo de check) ---
-with st.sidebar:
-    st.header("Datos del proyecto")
-    folio = st.text_input("Folio *", key="folio").strip()
+st.caption(f"Sesión de **{usuario['nombre']}**"
+           + (f" ({usuario['email']})" if usuario["email"] else ""))
+
+# --- Datos del proyecto (arriba, en el área principal) ---
+# El folio va primero porque su ESTADO define el tipo de check. Con el
+# botón se "abre" el checklist (session_state["captura_abierta"]): un
+# paso de confirmación antes del formulario largo. Editar el folio cierra
+# la captura y regresa a este paso.
+with st.container(border=True):
+    st.markdown("##### :material/assignment: Datos del proyecto")
+    col_f, col_c, col_camp = st.columns(3)
+    folio = col_f.text_input("Folio *", key="folio").strip()
     folio_info = db.get_folio(folio) if folio else None
     revisiones_folio = db.get_revisiones(folio) if folio else []
     estado = estado_folio(revisiones_folio)
 
-# El TIPO de check lo define el ESTADO del folio, NO el rol de la persona
-# (hay quien es diseñador y evaluador a la vez). Un folio nuevo o en
-# corrección es un 1er check (autorevisión de quien lo somete); uno
-# pendiente es un 2do check (revisión independiente). Así un folio nuevo
-# nunca se certifica sin pasar antes por su 2do check.
-es_evaluador = (estado == ESTADO_PENDIENTE)
-tipo_check = TIPO_SEGUNDO if es_evaluador else TIPO_PRIMER
-
-# Independencia: quien diseñó el folio (hizo su último 1er check) no puede
-# hacer su propio 2do check; debe revisarlo otra persona.
-_primeros = [r for r in revisiones_folio if r.get("tipo") == TIPO_PRIMER]
-disenador_folio = _primeros[-1]["evaluador"] if _primeros else None
-bloqueo_propio = es_evaluador and disenador_folio == usuario["nombre"]
-
-if es_evaluador:
-    st.title("2do check — Revisión de calidad")
-else:
-    st.title("1er check — Autorevisión del diseñador")
-st.caption(f"Sesión de **{usuario['nombre']}**"
-           + (f" ({usuario['email']})" if usuario["email"] else ""))
-
-# --- Sidebar: resto de datos del proyecto ---
-with st.sidebar:
-    # Cliente y campaña son atributos del folio: si ya existe se
-    # precargan, pero quedan editables para corregir asignaciones.
-    cliente = st.text_input("Cliente",
-                            value=folio_info["cliente"] if folio_info else "",
-                            key=f"cliente_{folio}")
-
+    # Cliente y campaña son atributos del folio: si ya existe se precargan,
+    # pero quedan editables para corregir asignaciones.
+    cliente = col_c.text_input("Cliente",
+                               value=folio_info["cliente"] if folio_info else "",
+                               key=f"cliente_{folio}")
     campanas = db.get_campanas(solo_abiertas=True)
     nombre_a_id = {c["nombre"]: c["id"] for c in campanas}
     if folio_info and folio_info["campana"] and folio_info["campana"] not in nombre_a_id:
@@ -267,127 +256,147 @@ with st.sidebar:
     opciones_campana = [SIN_CAMPANA] + list(nombre_a_id) + [NUEVA_CAMPANA]
     campana_default = (folio_info["campana"]
                        if folio_info and folio_info["campana"] else SIN_CAMPANA)
-    campana_sel = st.selectbox("Campaña", opciones_campana,
-                               index=opciones_campana.index(campana_default),
-                               key=f"campana_{folio}")
+    campana_sel = col_camp.selectbox("Campaña", opciones_campana,
+                                     index=opciones_campana.index(campana_default),
+                                     key=f"campana_{folio}")
     nueva_campana = ""
     if campana_sel == NUEVA_CAMPANA:
-        nueva_campana = st.text_input("Nombre de la nueva campaña *",
-                                      key=f"nueva_campana_{folio}")
+        nueva_campana = col_camp.text_input("Nombre de la nueva campaña *",
+                                            key=f"nueva_campana_{folio}")
 
-    prefill = None
-    if revisiones_folio:
-        st.markdown(f"Estado: {estado_badge(estado)} · "
-                    f"{len(revisiones_folio)} revisión(es) en total.")
+    # El TIPO de check lo define el ESTADO del folio, NO el rol de la
+    # persona (hay quien es diseñador y evaluador a la vez). Nuevo o en
+    # corrección = 1er check (autorevisión); pendiente = 2do check
+    # (revisión independiente). Así nada se certifica sin su 2do check.
+    es_evaluador = (estado == ESTADO_PENDIENTE)
+    tipo_check = TIPO_SEGUNDO if es_evaluador else TIPO_PRIMER
+    # Independencia: quien envió el folio no puede hacer su propio 2do check.
+    _primeros = [r for r in revisiones_folio if r.get("tipo") == TIPO_PRIMER]
+    disenador_folio = _primeros[-1]["evaluador"] if _primeros else None
+    bloqueo_propio = es_evaluador and disenador_folio == usuario["nombre"]
 
-        # Prefill según el rol: cada quien retoma su propio último check,
-        # dejando en blanco lo que falló en el último 2do check.
-        propias = [r for r in revisiones_folio if r.get("tipo") == tipo_check]
-        segundas = [r for r in revisiones_folio if r.get("tipo") == TIPO_SEGUNDO]
-        ultima_segunda = segundas[-1] if segundas else None
-        ofrecer_prefill = bool(propias) and (
-            ultima_segunda is not None and ultima_segunda["resultado"] == RESULTADO_CORRECCION
-        )
-        if ofrecer_prefill:
-            usar_prefill = st.checkbox(
-                "Precargar respuestas de la revisión anterior "
-                "(mantiene lo que ya cumplía, deja en blanco lo que falló)",
-                value=True,
+    abierta = folio != "" and st.session_state.get("captura_abierta") == folio
+
+    # Estado del folio + acción para abrir el checklist.
+    if folio:
+        if estado:
+            st.markdown(f"Estado: {estado_badge(estado)} &nbsp;·&nbsp; "
+                        f"será la revisión **#{len(revisiones_folio) + 1}**")
+        else:
+            st.markdown("**Folio nuevo** &nbsp;·&nbsp; será la revisión **#1**")
+
+        if bloqueo_propio:
+            st.warning(
+                f"Este folio lo enviaste tú ({disenador_folio}). El 2do check "
+                "debe hacerlo **otra persona** — es la revisión independiente. "
+                "Pídele a otro evaluador que lo revise.",
+                icon=":material/block:",
             )
-            if usar_prefill:
-                prefill = dict(propias[-1]["respuestas"])
-                for item_id, r in ultima_segunda["respuestas"].items():
-                    if r["status"] in STATUS_REQUIRES_MOTIVO:
-                        prefill[item_id] = {"status": None, "motivo": r["motivo"]}
-        st.divider()
-        with st.expander("Ver historial de revisiones de este folio"):
-            hist = pd.DataFrame([
-                {
-                    "Revisión": rev["revision"],
-                    "Check": "1er" if rev.get("tipo") == TIPO_PRIMER else "2do",
-                    "Fecha": rev["fecha"],
-                    "Realizó": rev.get("evaluador", ""),
-                    "Resultado": rev["resultado"],
-                }
-                for rev in revisiones_folio
-            ])
-            st.dataframe(hist, hide_index=True, width="stretch")
+        elif not abierta:
+            etiqueta = {
+                None: "Comenzar 1er check",
+                ESTADO_PENDIENTE: "Hacer 2do check",
+                ESTADO_CORRECCION: "Corregir folio",
+                ESTADO_LISTO: "Nueva revisión",
+            }.get(estado, "Abrir revisión")
+            if st.button(etiqueta, type="primary",
+                         icon=":material/play_arrow:", key="abrir_check"):
+                st.session_state["captura_abierta"] = folio
+                st.rerun()
 
-# --- Sin folio: mostrar la confirmación del último guardado o la guía ---
-ultimo_guardado = st.session_state.get("ultimo_guardado")
-if folio:
-    st.session_state.pop("ultimo_guardado", None)
-elif ultimo_guardado:
-    ug = ultimo_guardado
-    if ug["tipo"] == TIPO_PRIMER:
-        st.success(f"Revisión {ug['revision']} (1er check) guardada — el folio "
-                   f"**{ug['folio']}** quedó **pendiente de 2do check**.",
-                   icon=":material/outgoing_mail:")
-    elif ug["resultado"] == RESULTADO_LISTO:
-        st.success(f"Revisión {ug['revision']} del folio **{ug['folio']}** — "
-                   f"Listo para producción", icon=":material/check_circle:")
+# --- Sin folio: confirmación del último guardado o la guía ---
+if not folio:
+    ug = st.session_state.get("ultimo_guardado")
+    if ug:
+        if ug["tipo"] == TIPO_PRIMER:
+            st.success(f"Revisión {ug['revision']} (1er check) guardada — el folio "
+                       f"**{ug['folio']}** quedó **pendiente de 2do check**.",
+                       icon=":material/outgoing_mail:")
+        elif ug["resultado"] == RESULTADO_LISTO:
+            st.success(f"Revisión {ug['revision']} del folio **{ug['folio']}** — "
+                       f"Listo para producción", icon=":material/check_circle:")
+        else:
+            st.warning(f"Revisión {ug['revision']} del folio **{ug['folio']}** — "
+                       f"Requiere corrección. Cuando el diseñador corrija y pase su "
+                       f"1er check, el folio volverá a la cola de pendientes.",
+                       icon=":material/error:")
+        if ug.get("conteos"):
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric("Cumple", ug["conteos"][STATUS_CUMPLE])
+            m2.metric("Con ajuste", ug["conteos"][STATUS_AJUSTE])
+            m3.metric("No cumple", ug["conteos"][STATUS_NO_CUMPLE])
+            m4.metric("N/A", ug["conteos"][STATUS_NA])
+        if ug.get("pdf"):
+            st.download_button(
+                label="Descargar reporte en PDF (para el diseñador)",
+                data=ug["pdf"],
+                file_name=f"Reporte_{ug['folio']}_rev{ug['revision']}.pdf",
+                mime="application/pdf",
+                icon=":material/download:",
+            )
     else:
-        st.warning(f"Revisión {ug['revision']} del folio **{ug['folio']}** — "
-                   f"Requiere corrección. Cuando el diseñador corrija y pase su "
-                   f"1er check, el folio volverá a la cola de pendientes.",
-                   icon=":material/error:")
-    if ug.get("conteos"):
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Cumple", ug["conteos"][STATUS_CUMPLE])
-        m2.metric("Con ajuste", ug["conteos"][STATUS_AJUSTE])
-        m3.metric("No cumple", ug["conteos"][STATUS_NO_CUMPLE])
-        m4.metric("N/A", ug["conteos"][STATUS_NA])
-    if ug.get("pdf"):
-        st.download_button(
-            label="Descargar reporte en PDF (para el diseñador)",
-            data=ug["pdf"],
-            file_name=f"Reporte_{ug['folio']}_rev{ug['revision']}.pdf",
-            mime="application/pdf",
-            icon=":material/download:",
-        )
-    st.page_link("inicio.py", label="Volver al inicio", icon=":material/home:")
-    st.stop()
-else:
-    st.info("Escribe el folio en la barra lateral, o ábrelo con un clic "
-            "desde la página de inicio.", icon=":material/arrow_back:")
+        st.info("Escribe el folio arriba para comenzar, o ábrelo con un clic "
+                "desde la página de inicio.", icon=":material/arrow_upward:")
     st.page_link("inicio.py", label="Ir al inicio", icon=":material/home:")
     st.stop()
 
-# --- Encabezado de contexto: qué se está evaluando ---
-st.subheader(f":material/description: Folio {folio}")
-partes = []
-if cliente:
-    partes.append(f"**Cliente:** {cliente}")
-if campana_sel not in (SIN_CAMPANA, NUEVA_CAMPANA):
-    partes.append(f"**Campaña:** {campana_sel}")
-if estado:
-    partes.append(f"Estado: {estado_badge(estado)}")
-else:
-    partes.append("**Folio nuevo**")
-partes.append(f"**Esta revisión será la #{len(revisiones_folio) + 1}**")
-st.markdown(" · ".join(partes))
+# Ya hay folio: se descarta la confirmación anterior.
+st.session_state.pop("ultimo_guardado", None)
 
+# Con folio pero sin abrir aún (o bloqueado): la tarjeta ya mostró el
+# estado y el botón/aviso; el checklist se muestra hasta darle al botón.
+if bloqueo_propio or not abierta:
+    st.page_link("inicio.py", label="Ir al inicio", icon=":material/home:")
+    st.stop()
+
+# --- Checklist abierto ---
 if es_evaluador:
+    st.title(":material/fact_check: 2do check — Revisión de calidad")
     st.caption(
         "Revisa primero toda la parte técnica con el arte abierto. "
         "Al final, valida los datos operativos contra la orden de trabajo."
     )
 else:
+    st.title(":material/draw: 1er check — Autorevisión del diseñador")
     st.caption(
-        "Autorevisión de tu layout con los mismos 18 puntos del 2do check. "
+        "Autorevisión de tu layout con los mismos puntos del 2do check. "
         "Solo puedes enviarlo cuando todo esté en Cumple o N/A — "
         "si algo falla, corrígelo en el arte antes de enviar."
     )
 
-# Independencia: no puedes hacer el 2do check de un folio que tú enviaste.
-if bloqueo_propio:
-    st.warning(
-        f"Este folio lo enviaste tú ({disenador_folio}). El 2do check debe "
-        "hacerlo **otra persona** — es la revisión independiente. Pídele a "
-        "otro evaluador que lo revise.",
-        icon=":material/block:",
+# Prefill + historial: retomar la revisión anterior (cada quien retoma su
+# propio último check, dejando en blanco lo que falló en el 2do check).
+prefill = None
+if revisiones_folio:
+    propias = [r for r in revisiones_folio if r.get("tipo") == tipo_check]
+    segundas = [r for r in revisiones_folio if r.get("tipo") == TIPO_SEGUNDO]
+    ultima_segunda = segundas[-1] if segundas else None
+    ofrecer_prefill = bool(propias) and (
+        ultima_segunda is not None and ultima_segunda["resultado"] == RESULTADO_CORRECCION
     )
-    st.stop()
+    if ofrecer_prefill:
+        usar_prefill = st.checkbox(
+            "Precargar respuestas de la revisión anterior "
+            "(mantiene lo que ya cumplía, deja en blanco lo que falló)",
+            value=True,
+        )
+        if usar_prefill:
+            prefill = dict(propias[-1]["respuestas"])
+            for item_id, r in ultima_segunda["respuestas"].items():
+                if r["status"] in STATUS_REQUIRES_MOTIVO:
+                    prefill[item_id] = {"status": None, "motivo": r["motivo"]}
+    with st.expander("Ver historial de revisiones de este folio"):
+        hist = pd.DataFrame([
+            {
+                "Revisión": rev["revision"],
+                "Check": "1er" if rev.get("tipo") == TIPO_PRIMER else "2do",
+                "Fecha": rev["fecha"],
+                "Realizó": rev.get("evaluador", ""),
+                "Resultado": rev["resultado"],
+            }
+            for rev in revisiones_folio
+        ])
+        st.dataframe(hist, hide_index=True, width="stretch")
 
 respuestas = {}
 faltan_motivo = []
