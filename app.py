@@ -30,21 +30,26 @@ st.set_page_config(page_title="Doble check de preproyectos",
 
 db.init_db()
 
-usuario = auth.get_usuario()
+usuario_real = auth.get_usuario()
 
 # Auditoría: registrar el inicio de sesión una sola vez por sesión, y un
 # "latido" de presencia (máx. una escritura cada 30 s) para aproximar
-# quién está conectado. El "logout" no es capturable en Streamlit.
+# quién está conectado. El "logout" no es capturable en Streamlit. Se
+# registra la persona REAL, no la vista de diseñador de prueba.
 if not st.session_state.get("_login_registrado"):
-    db.registrar_evento("Inicio de sesión", usuario)
+    db.registrar_evento("Inicio de sesión", usuario_real)
     st.session_state["_login_registrado"] = True
 if time.time() - st.session_state.get("_presencia_ts", 0) > 30:
-    db.registrar_presencia(usuario)
+    db.registrar_presencia(usuario_real)
     st.session_state["_presencia_ts"] = time.time()
 
-# Interruptor de vista para admins: permite ver la app como evaluador o
-# como diseñador sin cambiar de cuenta (para probar ambos flujos).
-if auth.es_admin(usuario):
+# Interruptor de vista para admins. En "Diseñador" el admin se convierte
+# en un usuario diseñador de PRUEBA (auth.USUARIO_DISENADOR_TEST), con los
+# permisos de un diseñador real; en "Evaluador" es él mismo. El
+# interruptor se decide con la identidad REAL para que siga visible aun en
+# la vista de diseñador (si no, no habría forma de regresar).
+usuario = usuario_real
+if auth.es_admin(usuario_real):
     _, col_switch = st.columns([3, 1])
     with col_switch:
         vista = st.segmented_control(
@@ -53,13 +58,14 @@ if auth.es_admin(usuario):
             default="Evaluador",
             key="vista_admin",
             label_visibility="collapsed",
-            help="Solo para administradores: cambia entre la vista de "
-                 "evaluador (2do check) y la de diseñador (1er check).",
+            help="Solo para administradores: 'Diseñador' te convierte en un "
+                 "usuario diseñador de prueba (Diseñador Test), con permisos de "
+                 "diseñador, para probar el 1er check; 'Evaluador' te regresa a ti.",
         )
     if vista == "Diseñador":
-        usuario = {**usuario, "rol": auth.ROL_DISENADOR}
+        usuario = auth.USUARIO_DISENADOR_TEST
     else:
-        usuario = {**usuario, "rol": auth.ROL_EVALUADOR}
+        usuario = {**usuario_real, "rol": auth.ROL_EVALUADOR}
 
 st.session_state["usuario"] = usuario
 

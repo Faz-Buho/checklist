@@ -34,6 +34,19 @@ def es_admin(usuario):
     return usuario.get("email") in ADMINS or usuario.get("nombre") in ADMINS_LOCAL
 
 
+# Identidad de diseñador de PRUEBA. Cuando un admin cambia la vista a
+# "Diseñador", la app lo trata como este usuario ficticio: con permisos de
+# diseñador reales (sin acceso de admin ni al gestor del formulario) para
+# probar el 1er check de punta a punta. Al quedar los folios a nombre de
+# "Diseñador Test", el admin puede luego hacerles el 2do check desde su
+# propia cuenta sin que el candado de independencia lo bloquee.
+USUARIO_DISENADOR_TEST = {
+    "nombre": "Diseñador Test",
+    "email": "dis-test@buhoms.com",
+    "rol": ROL_DISENADOR,
+}
+
+
 # Solo estas personas pueden editar el formulario del checklist (gestor).
 # Es más restrictivo que es_admin a propósito.
 EDITORES_FORMULARIO = {"pfaz@buhoms.com"}
