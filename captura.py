@@ -18,6 +18,7 @@ from fpdf import FPDF
 from fpdf.fonts import FontFace
 
 import db
+import notificaciones
 from auth import ROL_DISENADOR, ROL_EVALUADOR
 from catalogo import (
     ESTADO_CORRECCION,
@@ -524,6 +525,16 @@ if guardar:
             }
             pdf_bytes = generar_pdf(proyecto_info, respuestas, resultado, revision_num,
                                     checklist, bloques)
+
+        # Notificación por correo (mejor esfuerzo: si falla o no hay config,
+        # no rompe el guardado). Avisa al evaluador de un folio nuevo en la
+        # cola, o al diseñador cuando su folio requiere corrección.
+        notificaciones.notificar_revision(
+            tipo=tipo_check, resultado=resultado, folio=folio,
+            cliente=cliente, campana=campana_nombre,
+            quien=usuario["nombre"], disenador_folio=disenador_folio,
+            pdf=pdf_bytes,
+        )
 
         # La confirmación (y el PDF) se muestran en el siguiente rerun con
         # el folio ya limpio: así el botón de descarga no se esfuma al

@@ -78,6 +78,27 @@ EVALUADORES_LOCAL = ["Pablo Faz", "Mariana Hernandez"]
 DISENADORES_LOCAL = ["Mauricio Fernandez", "Fatima Hernandez", "Dana Sofia Sifuentes"]
 
 
+def correos_evaluadores():
+    """Correos (de dominio de empresa) de los evaluadores, sin duplicados."""
+    return sorted({email for email in EVALUADORES
+                   if _dominio(email) in DOMINIOS_PERMITIDOS})
+
+
+def correo_de(nombre):
+    """Correo de empresa de una persona por su nombre; None si no se resuelve.
+
+    Los usuarios de prueba (p.ej. Diseñador Test) no están en las listas, así
+    que devuelve None y no se les manda nada. Si el nombre ya es un correo
+    (diseñador de dominio no listado), se usa tal cual.
+    """
+    if nombre and "@" in nombre:
+        return nombre
+    for email, n in {**EVALUADORES, **DISENADORES}.items():
+        if n == nombre and _dominio(email) in DOMINIOS_PERMITIDOS:
+            return email
+    return None
+
+
 def _auth_configurado():
     try:
         return "auth" in st.secrets
