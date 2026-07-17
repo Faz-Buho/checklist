@@ -10,6 +10,7 @@ Página de captura, con dos flujos según el rol del usuario (ver auth.py):
 Se ejecuta vía st.navigation desde app.py.
 """
 
+import time
 from datetime import datetime
 
 import pandas as pd
@@ -364,6 +365,21 @@ else:
         "Solo puedes enviarlo cuando todo esté en Cumple o N/A — "
         "si algo falla, corrígelo en el arte antes de enviar."
     )
+
+# Presencia por folio: si otro evaluador ya está en este mismo 2do check,
+# avisar para no duplicar esfuerzo; y dejar mi propio latido (throttled) para
+# que los demás me vean. Solo aplica al 2do check. Best-effort (ver db).
+if es_evaluador:
+    otros = db.evaluadores_en_folio(folio, excluir_usuario=usuario["nombre"])
+    if otros:
+        st.warning(f"**{', '.join(otros)}** también está evaluando este folio "
+                   "ahora mismo. Coordínense para no duplicar el trabajo.",
+                   icon=":material/group:")
+    if (st.session_state.get("_folio_presencia") != folio
+            or time.time() - st.session_state.get("_folio_presencia_ts", 0) > 20):
+        db.marcar_en_revision(usuario["nombre"], folio)
+        st.session_state["_folio_presencia"] = folio
+        st.session_state["_folio_presencia_ts"] = time.time()
 
 # Prefill + historial: retomar la revisión anterior (cada quien retoma su
 # propio último check, dejando en blanco lo que falló en el 2do check).

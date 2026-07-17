@@ -76,7 +76,8 @@ def _badge_espera(dias):
 
 
 def tarjeta(row, boton, tipo="primary", fecha_label="Enviado",
-            con_espera=True, mostrar_disenador=True, validado_por=None):
+            con_espera=True, mostrar_disenador=True, validado_por=None,
+            en_revision_por=None):
     """Tarjeta plegable con st.expander (colapsa al instante en el
     navegador, sin recargar): el encabezado muestra folio + campaña +
     urgencia; al desplegar, los detalles y el botón que abre el folio."""
@@ -86,6 +87,8 @@ def tarjeta(row, boton, tipo="primary", fecha_label="Enviado",
         label += f"　·　{row['campana']}"
     if con_espera:
         label += "　" + _badge_espera(_dias_desde(row["fecha"]))
+    if en_revision_por:
+        label += f"　:blue-badge[{', '.join(en_revision_por)} evaluando]"
     with st.expander(label):
         detalle = [f"Cliente: {row['cliente'] or '—'}"]
         if mostrar_disenador and row.get("disenador"):
@@ -122,8 +125,12 @@ if es_evaluador:
     if pend.empty:
         st.success("No hay folios esperando 2do check.", icon=":material/celebration:")
     else:
+        # Presencia por folio: marcar cuáles está trabajando otro evaluador
+        # ahora mismo, para no duplicar esfuerzo.
+        en_revision = db.folios_en_revision(excluir_usuario=usuario["nombre"])
         for _, row in _ordenar_por_espera(pend).iterrows():
-            tarjeta(row, "Revisar →", tipo="primary", fecha_label="Enviado")
+            tarjeta(row, "Revisar →", tipo="primary", fecha_label="Enviado",
+                    en_revision_por=en_revision.get(row["folio"]))
 
     # --- En corrección: esperando a los diseñadores ---
     corr = ultimas[ultimas["estado"] == ESTADO_CORRECCION]

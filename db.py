@@ -28,7 +28,7 @@ import os
 import sqlite3
 import threading
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 DB_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "checklist_data.db")
@@ -155,6 +155,13 @@ def _crear_esquema():
             usuario TEXT PRIMARY KEY,
             email TEXT,
             rol TEXT,
+            last_seen TEXT NOT NULL
+        )""",
+        # Presencia POR FOLIO: qué 2do check está trabajando cada evaluador
+        # ahora mismo, para avisar a los demás y no duplicar esfuerzo.
+        """CREATE TABLE IF NOT EXISTS en_revision (
+            usuario TEXT PRIMARY KEY,
+            folio TEXT NOT NULL,
             last_seen TEXT NOT NULL
         )""",
         # Formulario del checklist, editable desde el gestor (admin).
@@ -663,3 +670,60 @@ def get_presencia():
                          "ORDER BY last_seen DESC")
     finally:
         conn.close()
+
+
+def marcar_en_revision(usuario, folio):
+    """Marca que 'usuario' está trabajando el 2do check de 'folio' ahora.
+    Best-effort: es un latido de presencia por folio para avisar a otros
+    evaluadores y evitar doble esfuerzo."""
+    try:
+        if not usuario or not folio:
+            return
+        params = (usuario, folio, _ahora())
+        conn = _connect()
+        try:
+            if _is_postgres():
+                sql = ("INSERT INTO en_revision (usuario, folio, last_seen) "
+                       "VALUES (?, ?, ?) ON CONFLICT (usuario) DO UPDATE SET "
+                       "folio = EXCLUDED.folio, last_seen = EXCLUDED.last_seen")
+                with conn.cursor() as cur:
+                    cur.execute(_sql(sql), params)
+                conn.commit()
+            else:
+                sql = ("INSERT INTO en_revision (usuario, folio, last_seen) "
+                       "VALUES (?, ?, ?) ON CONFLICT(usuario) DO UPDATE SET "
+                       "folio = excluded.folio, last_seen = excluded.last_seen")
+                conn.execute(sql, params)
+        finally:
+            conn.close()
+    except Exception:
+        pass
+
+
+def folios_en_revision(excluir_usuario=None, ventana_seg=120):
+    """{folio: [nombres]} de quienes están trabajando un 2do check ahora
+    (latido dentro de ventana_seg segundos), excluyendo opcionalmente a
+    una persona. Best-effort: si algo falla, regresa {}."""
+    try:
+        corte = (datetime.now(_TZ) - timedelta(seconds=ventana_seg)).strftime(
+            "%Y-%m-%d %H:%M:%S")
+        conn = _connect()
+        try:
+            filas = _fetchall(conn,
+                              "SELECT usuario, folio FROM en_revision "
+                              "WHERE last_seen >= ?", (corte,))
+        finally:
+            conn.close()
+    except Exception:
+        return {}
+    activos = {}
+    for f in filas:
+        if excluir_usuario and f["usuario"] == excluir_usuario:
+            continue
+        activos.setdefault(f["folio"], []).append(f["usuario"])
+    return activos
+
+
+def evaluadores_en_folio(folio, excluir_usuario=None, ventana_seg=120):
+    """Nombres de quienes están trabajando el 2do check de 'folio' ahora."""
+    return folios_en_revision(excluir_usuario, ventana_seg).get(folio, [])
